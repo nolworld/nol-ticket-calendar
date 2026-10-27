@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NOL 티켓 캘린더</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #F5F4FA;
+  --surface: #FFFFFF;
+  --surface-2: #ECEAF4;
+  --ink: #17142B;
+  --ink-2: #5C5873;
+  --line: #DAD7E6;
+  --accent: #5B3FD9;
+  --sun: #C8274B;
+  --sat: #2B5FB8;
+  --today-bg: #17142B;
+  --today-ink: #FFFFFF;
+  --sel: #5B3FD9;
+  --g-k: #7A4DE8;
+  --g-c: #2B6CB0;
+  --g-i: #D0336E;
+  --g-f: #16876A;
+  --g-m: #B7791F;
+  --g-e: #6B7280;
+  --g-mu: #0E7490;
+  --g-sp: #4D7C0F;
+  --g-ex: #9A3412;
+  --open: #B45309;
+  --display: 'Black Han Sans', 'IBM Plex Sans KR', 'Apple SD Gothic Neo', sans-serif;
+  --body: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #13111F; --surface: #1C1A2B; --surface-2: #262338; --ink: #EEECF7; --ink-2: #A6A2BD;
+    --line: #34304A; --accent: #A08CFF; --sun: #FF6B8A; --sat: #7FA8FF; --today-bg: #EEECF7;
+    --today-ink: #13111F; --sel: #A08CFF; --g-k: #A98BFF; --g-c: #6FA8E8; --g-i: #FF7AA8;
+    --g-f: #4FD1A5; --g-m: #F0B44C; --g-e: #9CA3AF; --open: #F59E0B;
+    --g-mu: #5CC8DC; --g-sp: #A3D65C; --g-ex: #F08A5D;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #13111F; --surface: #1C1A2B; --surface-2: #262338; --ink: #EEECF7; --ink-2: #A6A2BD;
+  --line: #34304A; --accent: #A08CFF; --sun: #FF6B8A; --sat: #7FA8FF; --today-bg: #EEECF7;
+  --today-ink: #13111F; --sel: #A08CFF; --g-k: #A98BFF; --g-c: #6FA8E8; --g-i: #FF7AA8;
+  --g-f: #4FD1A5; --g-m: #F0B44C; --g-e: #9CA3AF; --open: #F59E0B;
+    --g-mu: #5CC8DC; --g-sp: #A3D65C; --g-ex: #F08A5D;
+}
+html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+*, *::before, *::after { box-sizing: inherit; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.app { max-width: 1240px; margin: 0 auto; padding: 24px 20px 40px; }
+
+/* Header */
+.top { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: flex-end; justify-content: space-between; }
+.top h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.top .sub { margin: 4px 0 0; color: var(--ink-2); font-size: 14px; }
+.ctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.mode { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.mode button { border: 0; background: transparent; padding: 7px 12px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.mode button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.item .nw { font-size: 12px; color: var(--ink-2); }
+.search input {
+  width: min(320px, 80vw);
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.search input::placeholder { color: var(--ink-2); }
+
+/* Filters */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 16px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface);
+  cursor: pointer; font-size: 14px; font-weight: 500;
+}
+.chip .sw { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+.chip[aria-pressed="false"] { color: var(--ink-2); background: transparent; }
+.chip[aria-pressed="false"] .sw { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
+.chip.open-toggle .sw { background: transparent; border: 1.5px dashed var(--open); border-radius: 3px; }
+.chip.open-toggle[aria-pressed="false"] .sw { opacity: .5; }
+.sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 4px; }
+details.grp { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 10px; }
+details.grp summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink-2); padding: 4px 0; }
+details.grp .list { margin-top: 8px; }
+.chip .n { color: var(--ink-2); font-weight: 400; font-size: 13px; }
+
+/* Layout */
+.layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+@media (min-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; } .panel { position: sticky; top: calc(16px + env(safe-area-inset-top, 0px)); max-height: calc(100vh - 32px); overflow-y: auto; } }
+
+/* Calendar */
+.cal { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+.cal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.month { display: flex; align-items: baseline; gap: 10px; margin: 0 auto 0 0; }
+.month .num { font-family: var(--display); font-weight: 400; font-size: 56px; line-height: .9; letter-spacing: -0.02em; }
+.month .lbl { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.nav { display: flex; gap: 6px; }
+.nav button {
+  min-width: 40px; height: 40px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 600;
+}
+.nav button:disabled { opacity: .35; cursor: not-allowed; }
+.nav button:not(:disabled):hover { background: var(--surface-2); }
+
+.dow, .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.dow div { text-align: center; font-size: 13px; font-weight: 600; color: var(--ink-2); padding: 4px 0 8px; }
+.dow .sun { color: var(--sun); }
+.dow .sat { color: var(--sat); }
+
+.day {
+  min-height: 108px; padding: 6px; border-radius: 10px;
+  border: 1px solid transparent; background: var(--surface-2);
+  display: flex; flex-direction: column; gap: 3px; align-items: stretch;
+  text-align: left; cursor: pointer; min-width: 0; overflow: hidden;
+}
+.day:hover { border-color: var(--line); }
+.day.blank { background: transparent; cursor: default; }
+.day.past { opacity: .5; }
+.day.sel { border-color: var(--sel); box-shadow: inset 0 0 0 1px var(--sel); }
+.dnum { font-size: 13px; font-weight: 600; line-height: 1; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; margin-bottom: 2px; }
+.day.sun .dnum { color: var(--sun); }
+.day.sat .dnum { color: var(--sat); }
+.day.today .dnum { background: var(--today-bg); color: var(--today-ink); }
+.bar {
+  font-size: 12px; font-weight: 500; line-height: 1.3;
+  padding: 2px 6px; border-radius: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-left: 3px solid var(--c);
+  background: color-mix(in srgb, var(--c) 15%, transparent);
+}
+.bar.cont { color: var(--ink-2); }
+.more { font-size: 12px; color: var(--ink-2); padding-left: 4px; }
+.openmark {
+  margin-top: auto; font-size: 11px; font-weight: 600; color: var(--open);
+  border: 1px dashed var(--open); border-radius: 4px; padding: 1px 5px; width: fit-content;
+}
+.dots { display: none; flex-wrap: wrap; gap: 3px; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.dots i.o { background: transparent; border: 1px dashed var(--open); }
+
+@media (max-width: 680px) {
+  .app { padding: 16px 12px 32px; }
+  .cal { padding: 12px; }
+  .day { min-height: 58px; padding: 4px; align-items: center; }
+  .bar, .more, .openmark { display: none; }
+  .dots { display: flex; justify-content: center; }
+  .month .num { font-size: 44px; }
+}
+
+/* Panel */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+.panel h2 { margin: 0 0 4px; font-size: 18px; }
+.panel .meta { margin: 0 0 14px; color: var(--ink-2); font-size: 14px; }
+.panel h3.sec { margin: 18px 0 8px; font-size: 14px; color: var(--ink-2); font-weight: 600; }
+.panel h3.sec:first-of-type { margin-top: 4px; }
+.list { display: flex; flex-direction: column; gap: 10px; }
+.item {
+  border-left: 3px solid var(--c); padding: 8px 0 8px 12px;
+}
+.item + .item { border-top: 1px solid var(--line); }
+.item .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
+.item .tag { font-weight: 600; color: var(--c); }
+.item h4 { margin: 2px 0 2px; font-size: 15px; font-weight: 600; line-height: 1.4; word-break: keep-all; overflow-wrap: anywhere; }
+.item .kr { margin: 0 0 2px; font-size: 13px; color: var(--ink-2); }
+.item .venue { margin: 0; font-size: 14px; color: var(--ink-2); }
+.item .acts { display: flex; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+.item a, .item .jump {
+  font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none;
+  background: none; border: 0; padding: 0; cursor: pointer;
+}
+.item a:hover, .item .jump:hover { text-decoration: underline; }
+.item a.alt { color: var(--ink-2); font-weight: 500; }
+.item.open { border-left: 3px dashed var(--open); --c: var(--open); }
+.note { font-size: 13px; color: var(--ink-2); margin: 4px 0 0; }
+.empty { color: var(--ink-2); font-size: 14px; padding: 8px 0; }
+.status { margin: 0; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 14px; }
+.status button { margin-left: 8px; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
+.status button:hover { text-decoration: underline; }
+
+footer { margin-top: 24px; color: var(--ink-2); font-size: 13px; max-width: 72ch; }
+footer p { margin: 0 0 6px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .grid.swap { animation: fade .18s ease; }
+  @keyframes fade { from { opacity: .3; } to { opacity: 1; } }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div>
+      <h1>NOL 티켓 캘린더</h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <div class="ctl">
+    <div class="mode" id="mode" role="group" aria-label="판매처">
+      <button type="button" data-w="1" aria-pressed="true">NOL World 판매</button>
+      <button type="button" data-w="0" aria-pressed="false">NOL 전체</button>
+    </div>
+    <label class="search">
+      <span class="sr">공연, 경기, 전시 이름이나 장소로 검색</span>
+      <input type="search" id="q" placeholder="공연, 경기, 전시 이름이나 장소로 검색" autocomplete="off">
+    </label>
+    </div>
+  </header>
+
+  <div class="filters" id="filters" role="group" aria-label="표시할 장르"></div>
+  <p class="status" id="status" role="status">NOL 일정을 불러오는 중이에요.</p>
+
+  <main class="layout">
+    <section class="cal" aria-label="월간 일정 달력">
+      <div class="cal-head">
+        <h2 class="month" id="month" aria-live="polite"></h2>
+        <div class="nav">
+          <button type="button" id="prev" aria-label="이전 달">‹</button>
+          <button type="button" id="todayBtn">오늘</button>
+          <button type="button" id="next" aria-label="다음 달">›</button>
+        </div>
+      </div>
+      <div class="dow" aria-hidden="true">
+        <div class="sun">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div class="sat">토</div>
+      </div>
+      <div class="grid" id="grid"></div>
+    </section>
+
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </main>
+
+  <footer>
+    <p>NOL World(world.nol.com)와 국내 NOL의 콘서트, 뮤지컬, 스포츠, 전시 목록을 매일 오전 6시쯤(한국 시간) 새로 읽어 와요.</p>
+    <p>‘NOL World 판매’ 보기에는 NOL World 목록에 올라온 상품만 나오고, 상품명은 NOL World에 등록된 이름 그대로 보여줘요. 국내 NOL 이름이 다르면 그 아래에 작게 적었어요. ‘NOL 전체’로 바꾸면 국내 NOL에서만 파는 일정도 함께 국내 이름으로 보여요.</p>
+    <p>일주일 넘게 이어지는 일정은 달력에 시작일과 종료일만 표시하고, 날짜를 누르면 그날 진행 중인 목록에서 볼 수 있어요.</p>
+    <p>티켓 오픈 시각은 상품 정보에 적힌 시각이에요. 선예매처럼 따로 열리는 회차는 빠질 수 있으니, 날짜와 회차는 예매 전에 각 상품 페이지에서 다시 확인하세요.</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var GENRES = [
+    { id: 'c', name: '콘서트' },
+    { id: 'i', name: '내한' },
+    { id: 'f', name: '페스티벌' },
+    { id: 'm', name: '팬미팅' },
+    { id: 'e', name: '토크·쇼' },
+    { id: 'mu', name: '뮤지컬' },
+    { id: 'sp', name: '스포츠' },
+    { id: 'ex', name: '전시·행사' }
+  ];
+  var CONCERT = { c: 1, i: 1, f: 1, m: 1, e: 1 };
+
+  // ---------- helpers ----------
+  var DOW = ['일', '월', '화', '수', '목', '금', '토'];
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function ymd(y, m, d) { return y + '-' + pad(m) + '-' + pad(d); }
+  function parse(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function fmt(s) { var d = parse(s); return (d.getMonth() + 1) + '.' + d.getDate() + '(' + DOW[d.getDay()] + ')'; }
+  function fmtRange(a, b) { return a === b ? fmt(a) : fmt(a) + ' – ' + fmt(b); }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  // Shorter label for the small calendar bars only; full names appear everywhere else
+  function short(t) { return t.replace(/^20\d\d(-\d\d)?\s+/, '').replace(/^(the\s+)?musical\s*/i, ''); }
+  function genreName(id) { for (var i = 0; i < GENRES.length; i++) if (GENRES[i].id === id) return GENRES[i].name; return ''; }
+  function monthIndex(y, m) { return y * 12 + (m - 1); }
+  function updatedLabel(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var gridEl = $('grid'), panelEl = $('panel'), monthEl = $('month'), statusEl = $('status');
+
+  var now = new Date();
+  var TODAY = ymd(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  var todayM = monthIndex(now.getFullYear(), now.getMonth() + 1);
+
+  var EVENTS = [], OPENS = [], UPDATED = '', MIN_M = todayM, MAX_M = todayM;
+  var state = { m: todayM, selected: TODAY, genres: {}, showOpens: true, worldOnly: true, q: '' };
+  GENRES.forEach(function (g) { state.genres[g.id] = true; });
+
+  function setData(data) {
+    UPDATED = data.updatedAt;
+    EVENTS = data.events.map(function (e, i) {
+      var long = (parse(e.end) - parse(e.start)) / 864e5 > 6;
+      return { id: i, title: e.nameKo, wname: e.name, venue: e.venueKo, wvenue: e.venue, world: !!e.world,
+        start: e.start, end: e.end, genre: e.genre, url: e.url, krUrl: e.krUrl, run: long };
+    });
+    OPENS = data.events.filter(function (e) { return e.open; }).map(function (e, i) {
+      return { id: i, date: e.open.slice(0, 10), time: e.open.slice(11, 16), title: e.nameKo, wname: e.name, world: !!e.world,
+        url: e.url, krUrl: e.krUrl, genre: e.genre };
+    });
+    // Month range follows the data so navigation grows with new listings
+    var dates = EVENTS.map(function (e) { return e.end; }).concat(OPENS.map(function (o) { return o.date; }));
+    var maxDate = dates.reduce(function (a, b) { return a > b ? a : b; }, TODAY);
+    MIN_M = todayM;
+    MAX_M = Math.max(monthIndex(+maxDate.slice(0, 4), +maxDate.slice(5, 7)), MIN_M);
+    state.m = todayM;
+    state.selected = TODAY;
+  }
+
+  // NOL World mode shows only products listed on NOL World, under their NOL World names
+  function inMode(x) { return !state.worldOnly || x.world; }
+  function nameOf(x) { return state.worldOnly && x.world && x.wname ? x.wname : x.title; }
+  function venueOf(x) { return state.worldOnly && x.world && x.wvenue ? x.wvenue : x.venue; }
+  function matches(x) {
+    return (x.title + ' ' + (x.wname || '') + ' ' + (x.venue || '') + ' ' + (x.wvenue || '')).toLowerCase().indexOf(state.q.toLowerCase()) !== -1;
+  }
+  function visible(e) {
+    if (!inMode(e) || !state.genres[e.genre]) return false;
+    return state.q ? matches(e) : true;
+  }
+  function openVisible(o) {
+    if (!state.showOpens || !inMode(o) || !state.genres[o.genre]) return false;
+    return state.q ? matches(o) : true;
+  }
+  function eventsOn(date) {
+    return EVENTS.filter(function (e) { return !e.run && visible(e) && date >= e.start && date <= e.end; });
+  }
+  // Long runs appear in the grid only on their first and last day
+  function runEdgesOn(date) {
+    return EVENTS.filter(function (e) { return e.run && visible(e) && (e.start === date || e.end === date); });
+  }
+  function runsCovering(date) {
+    return EVENTS.filter(function (e) { return e.run && visible(e) && date >= e.start && date <= e.end; });
+  }
+  function opensOn(date) { return OPENS.filter(function (o) { return openVisible(o) && o.date === date; }); }
+
+  function renderSub() {
+    $('sub').textContent = (state.worldOnly ? 'NOL World 판매 일정 ' : 'NOL 전체 일정 ') + EVENTS.filter(inMode).length + '개와 티켓 오픈 ' +
+      OPENS.filter(function (o) { return inMode(o) && o.date >= TODAY; }).length + '건 · ' + updatedLabel(UPDATED) + ' 업데이트';
+  }
+
+  // ---------- filters ----------
+  function renderFilters() {
+    var html = GENRES.map(function (g) {
+      var sep = g.id === 'mu' ? '<span class="sep" aria-hidden="true"></span>' : '';
+      var n = EVENTS.filter(function (e) { return e.genre === g.id && inMode(e); }).length;
+      if (!n) return sep;
+      return sep + '<button type="button" class="chip" data-g="' + g.id + '" aria-pressed="' + state.genres[g.id] + '" style="--c:var(--g-' + g.id + ')">' +
+        '<span class="sw"></span>' + esc(g.name) + ' <span class="n">' + n + '</span></button>';
+    }).join('');
+    var upcoming = OPENS.filter(function (o) { return inMode(o) && o.date >= TODAY; }).length;
+    html += '<button type="button" class="chip open-toggle" data-open="1" aria-pressed="' + state.showOpens + '">' +
+      '<span class="sw"></span>티켓 오픈 <span class="n">' + upcoming + '</span></button>';
+    $('filters').innerHTML = html;
+    var mb = $('mode').querySelectorAll('button');
+    for (var i = 0; i < mb.length; i++) mb[i].setAttribute('aria-pressed', String((mb[i].dataset.w === '1') === state.worldOnly));
+  }
+  $('mode').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    state.worldOnly = b.dataset.w === '1';
+    renderSub();
+    renderFilters();
+    render(false);
+  });
+  $('filters').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.open) state.showOpens = !state.showOpens;
+    else state.genres[b.dataset.g] = !state.genres[b.dataset.g];
+    renderFilters();
+    render(false);
+  });
+
+  // ---------- calendar ----------
+  function renderGrid(animate) {
+    var y = Math.floor(state.m / 12), m = state.m % 12 + 1;
+    monthEl.innerHTML = '<span class="num">' + m + '</span><span class="lbl">' + y + '년 ' + m + '월</span>';
+    $('prev').disabled = state.m <= MIN_M;
+    $('next').disabled = state.m >= MAX_M;
+
+    var first = new Date(y, m - 1, 1).getDay();
+    var days = new Date(y, m, 0).getDate();
+    var cells = Math.ceil((first + days) / 7) * 7;
+    var html = '';
+    for (var i = 0; i < cells; i++) {
+      var d = i - first + 1;
+      if (d < 1 || d > days) { html += '<div class="day blank" aria-hidden="true"></div>'; continue; }
+      var date = ymd(y, m, d), dow = (first + d - 1) % 7;
+      var evs = eventsOn(date).concat(runEdgesOn(date));
+      var ops = opensOn(date);
+      var cls = 'day' + (dow === 0 ? ' sun' : '') + (dow === 6 ? ' sat' : '') +
+        (date === TODAY ? ' today' : '') + (date < TODAY ? ' past' : '') + (state.selected === date ? ' sel' : '');
+      var label = m + '월 ' + d + '일 ' + DOW[dow] + '요일, 일정 ' + evs.length + '개' + (ops.length ? ', 티켓 오픈 ' + ops.length + '건' : '');
+      var inner = '<span class="dnum">' + d + '</span>';
+      var limit = 3;
+      evs.slice(0, limit).forEach(function (e) {
+        var cont = !e.run && e.start < date;
+        var tag = e.run ? (e.start === date ? '시작 ' : '종료 ') : '';
+        inner += '<span class="bar' + (cont ? ' cont' : '') + '" style="--c:var(--g-' + e.genre + ')">' + tag + esc(short(nameOf(e))) + '</span>';
+      });
+      if (evs.length > limit) inner += '<span class="more">외 ' + (evs.length - limit) + '개</span>';
+      if (ops.length) inner += '<span class="openmark">티켓 오픈 ' + ops.length + '</span>';
+      var dots = evs.slice(0, 6).map(function (e) { return '<i style="--c:var(--g-' + e.genre + ')"></i>'; }).join('');
+      if (ops.length) dots += '<i class="o"></i>';
+      inner += '<span class="dots" aria-hidden="true">' + dots + '</span>';
+      html += '<button type="button" class="' + cls + '" data-date="' + date + '" aria-label="' + esc(label) + '"' +
+        (state.selected === date ? ' aria-current="date"' : '') + '>' + inner + '</button>';
+    }
+    gridEl.innerHTML = html;
+    if (animate) { gridEl.classList.remove('swap'); void gridEl.offsetWidth; gridEl.classList.add('swap'); }
+  }
+
+  gridEl.addEventListener('click', function (e) {
+    var b = e.target.closest('button.day');
+    if (!b) return;
+    state.selected = state.selected === b.dataset.date ? null : b.dataset.date;
+    render(false);
+  });
+
+  // ---------- panel ----------
+  function linksHTML(x) {
+    if (x.world && x.url) {
+      return '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">NOL World에서 예매</a>' +
+        '<a class="alt" href="' + esc(x.krUrl) + '" target="_blank" rel="noopener">국내 NOL</a>';
+    }
+    return '<a href="' + esc(x.krUrl) + '" target="_blank" rel="noopener">국내 NOL에서 보기</a>' +
+      '<span class="nw">NOL World 미판매</span>';
+  }
+  // Korean NOL name as a quiet second line when the NOL World name differs
+  function krLine(x) {
+    return nameOf(x) !== x.title ? '<p class="kr">국내 NOL: ' + esc(x.title) + '</p>' : '';
+  }
+  function itemHTML(e, withJump) {
+    var acts = linksHTML(e);
+    if (withJump) acts += '<button type="button" class="jump" data-jump="' + e.start + '">달력에서 보기</button>';
+    return '<article class="item" style="--c:var(--g-' + e.genre + ')">' +
+      '<div class="row"><span class="tag">' + esc(genreName(e.genre)) + '</span><span>' + fmtRange(e.start, e.end) + '</span></div>' +
+      '<h4>' + esc(nameOf(e)) + '</h4>' + krLine(e) +
+      '<p class="venue">' + esc(venueOf(e)) + '</p>' +
+      (e.run ? '<p class="note">' + (CONCERT[e.genre] ? '기간 중 일부 날짜에만 공연해요. 회차는 예매 페이지에서 확인하세요.' : '기간 내내 운영해요. 회차와 휴무일은 예매 페이지에서 확인하세요.') + '</p>' : '') +
+      '<div class="acts">' + acts + '</div></article>';
+  }
+  function openHTML(o, withDate) {
+    return '<article class="item open">' +
+      '<div class="row"><span class="tag">티켓 오픈</span><span>' + (withDate ? fmt(o.date) + ' ' : '') + o.time + '</span></div>' +
+      '<h4>' + esc(nameOf(o)) + '</h4>' + krLine(o) +
+      '<div class="acts">' + linksHTML(o) + '</div></article>';
+  }
+  function byStart(a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; }
+  function byEnd(a, b) { return a.end < b.end ? -1 : a.end > b.end ? 1 : 0; }
+  function byOpen(a, b) { var x = a.date + a.time, y = b.date + b.time; return x < y ? -1 : x > y ? 1 : 0; }
+  // Long runs are grouped by category in collapsible sections so the list stays readable
+  function runGroupsHTML(runs, open) {
+    var out = '';
+    [['mu', '뮤지컬'], ['ex', '전시·행사'], ['sp', '스포츠'], ['c', '콘서트']].forEach(function (g) {
+      var list = runs.filter(function (e) { return g[0] === 'c' ? CONCERT[e.genre] : e.genre === g[0]; }).sort(byEnd);
+      if (!list.length) return;
+      out += '<details class="grp"' + (open ? ' open' : '') + '><summary>기간 중 진행하는 ' + g[1] + ' ' + list.length + '개 (끝나는 순)</summary>' +
+        '<div class="list">' + list.map(function (e) { return itemHTML(e); }).join('') + '</div></details>';
+    });
+    return out;
+  }
+
+  function renderPanel() {
+    var html = '';
+    if (state.q) {
+      var hits = EVENTS.filter(function (e) { return visible(e) && e.end >= TODAY; }).sort(byStart);
+      var oh = OPENS.filter(function (o) { return openVisible(o) && o.date >= TODAY; }).sort(byOpen);
+      html += '<h2>검색 결과</h2><p class="meta">“' + esc(state.q) + '” 일정 ' + hits.length + '개' + (oh.length ? ', 티켓 오픈 ' + oh.length + '건' : '') + '</p>';
+      if (!hits.length && !oh.length) html += '<p class="empty">일치하는 일정이 없어요. 다른 이름이나 장소로 검색하거나 꺼 둔 필터를 켜 보세요.</p>';
+      if (hits.length) html += '<div class="list">' + hits.map(function (e) { return itemHTML(e, true); }).join('') + '</div>';
+      if (oh.length) html += '<h3 class="sec">티켓 오픈</h3><div class="list">' + oh.map(function (o) { return openHTML(o, true); }).join('') + '</div>';
+    } else if (state.selected) {
+      var d = parse(state.selected);
+      var evs = eventsOn(state.selected).sort(byStart);
+      var runs = runsCovering(state.selected);
+      var ops = opensOn(state.selected).sort(byOpen);
+      html += '<h2>' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + DOW[d.getDay()] + '요일</h2>';
+      html += '<p class="meta">이날 일정 ' + evs.length + '개' + (runs.length ? ', 기간 중 진행 ' + runs.length + '개' : '') + (ops.length ? ', 티켓 오픈 ' + ops.length + '건' : '') + '</p>';
+      if (!evs.length && !runs.length && !ops.length) {
+        html += '<p class="empty">이 날은 예정된 일정이 없어요. 다른 날짜를 고르거나, 꺼 둔 장르 필터나 ‘NOL 전체’ 보기를 확인해 보세요.</p>';
+      }
+      if (evs.length) html += '<h3 class="sec">이날 일정</h3><div class="list">' + evs.map(function (e) { return itemHTML(e); }).join('') + '</div>';
+      if (ops.length) html += '<h3 class="sec">티켓 오픈</h3><div class="list">' + ops.map(function (o) { return openHTML(o); }).join('') + '</div>';
+      if (runs.length) html += runGroupsHTML(runs, !evs.length && !ops.length);
+    } else {
+      var y = Math.floor(state.m / 12), m = state.m % 12 + 1;
+      var a = ymd(y, m, 1), b = ymd(y, m, new Date(y, m, 0).getDate());
+      var inMonth = EVENTS.filter(function (e) { return visible(e) && e.start <= b && e.end >= a && e.end >= TODAY; });
+      var list = inMonth.filter(function (e) { return !e.run; }).sort(byStart);
+      var mruns = inMonth.filter(function (e) { return e.run; });
+      var mo = OPENS.filter(function (o) { return openVisible(o) && o.date >= a && o.date <= b && o.date >= TODAY; }).sort(byOpen);
+      html += '<h2>' + m + '월에 남은 일정</h2><p class="meta">일정 ' + list.length + '개' + (mruns.length ? ', 기간 중 진행 ' + mruns.length + '개' : '') + (mo.length ? ', 티켓 오픈 ' + mo.length + '건' : '') + '. 날짜를 누르면 그날 일정만 볼 수 있어요.</p>';
+      if (!list.length && !mo.length && !mruns.length) html += '<p class="empty">이 달에는 남은 일정이 없어요. 다음 달로 넘기거나 꺼 둔 필터를 켜 보세요.</p>';
+      if (list.length) html += '<div class="list">' + list.map(function (e) { return itemHTML(e); }).join('') + '</div>';
+      if (mo.length) html += '<h3 class="sec">티켓 오픈</h3><div class="list">' + mo.map(function (o) { return openHTML(o, true); }).join('') + '</div>';
+      if (mruns.length) html += runGroupsHTML(mruns, false);
+    }
+    panelEl.innerHTML = html;
+  }
+
+  panelEl.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-jump]');
+    if (!b) return;
+    var s = b.dataset.jump < TODAY ? TODAY : b.dataset.jump;
+    state.q = '';
+    $('q').value = '';
+    state.m = Math.min(Math.max(monthIndex(+s.slice(0, 4), +s.slice(5, 7)), MIN_M), MAX_M);
+    state.selected = s;
+    render(true);
+  });
+
+  // ---------- controls ----------
+  function go(delta) {
+    var n = state.m + delta;
+    if (n < MIN_M || n > MAX_M) return;
+    state.m = n;
+    state.selected = null;
+    render(true);
+  }
+  $('prev').addEventListener('click', function () { go(-1); });
+  $('next').addEventListener('click', function () { go(1); });
+  $('todayBtn').addEventListener('click', function () {
+    state.m = todayM;
+    state.selected = TODAY;
+    render(true);
+  });
+  var qTimer;
+  $('q').addEventListener('input', function (e) {
+    clearTimeout(qTimer);
+    qTimer = setTimeout(function () { state.q = e.target.value.trim(); render(false); }, 120);
+  });
+
+  function render(animate) { renderGrid(animate); renderPanel(); }
+
+  // ---------- data ----------
+  function load() {
+    statusEl.hidden = false;
+    statusEl.textContent = 'NOL 일정을 불러오는 중이에요.';
+    fetch('events.json?v=' + Date.now(), { headers: { accept: 'application/json' } })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        if (!data || !Array.isArray(data.events)) throw new Error('bad data');
+        setData(data);
+        statusEl.hidden = true;
+        renderSub();
+        renderFilters();
+        render(false);
+      })
+      .catch(function () {
+        statusEl.innerHTML = '일정을 불러오지 못했어요. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.' +
+          '<button type="button" id="retry">다시 불러오기</button>';
+        $('retry').addEventListener('click', load);
+      });
+  }
+
+  renderGrid(false);
+  load();
+})();
+</script>
+</body>
+</html>
