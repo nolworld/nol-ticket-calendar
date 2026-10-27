@@ -1,0 +1,56 @@
+name: Update calendar
+
+on:
+  schedule:
+    - cron: "0 21 * * *"   # 06:00 KST (UTC+9) every day. GitHub may start it a little late.
+  workflow_dispatch:       # "Run workflow" button for a manual update
+  push:
+    branches: [main]
+    paths: ["site/**", "scripts/**", ".github/workflows/**"]
+
+permissions:
+  contents: write   # save the updated data back to the repository
+  pages: write      # publish to GitHub Pages
+  id-token: write
+
+concurrency:
+  group: update-calendar
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read NOL World and NOL lists
+        run: node scripts/update.mjs
+
+      - name: Save updated data to the repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/events.json data/names-ko.json
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Update calendar data $(TZ=Asia/Seoul date +'%Y-%m-%d %H:%M KST')"
+            git push
+          fi
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
