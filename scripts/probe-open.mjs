@@ -1,6 +1,5 @@
-// One-time check: where can presale / general sale schedules be read from?
-// Writes a plain-text report to site/probe.txt (published with the site) and
-// to the Actions run summary. Safe to delete after the check.
+// One-time check (round 2): exact format of presale / general sale data and
+// Korean names on Korean NOL product pages. Writes site/probe2.txt.
 import fs from "node:fs"
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
@@ -12,120 +11,110 @@ const log = (...a) => {
 }
 const cut = (s, n = 300) => String(s ?? "").replace(/\s+/g, " ").slice(0, n)
 
-async function get(url, headers = {}, enc) {
+async function get(url, headers = {}) {
+  const t = Date.now()
   try {
-    const r = await fetch(url, { headers: { "user-agent": UA, ...headers }, redirect: "follow", signal: AbortSignal.timeout(15000) })
-    const buf = new Uint8Array(await r.arrayBuffer())
-    let text
-    try { text = new TextDecoder(enc || "utf-8").decode(buf) } catch { text = new TextDecoder().decode(buf) }
-    return { status: r.status, url: r.url, ct: r.headers.get("content-type") || "", text }
+    const r = await fetch(url, { headers: { "user-agent": UA, ...headers }, redirect: "follow", signal: AbortSignal.timeout(20000) })
+    return { status: r.status, url: r.url, text: await r.text(), ms: Date.now() - t }
   } catch (e) {
-    return { status: 0, url, ct: "", text: "", err: String(e) }
+    return { status: 0, url, text: "", ms: Date.now() - t, err: String(e) }
   }
 }
 
-// keys in raw HTML / JSON that look like booking schedule fields
-function scheduleFields(text) {
-  const t = text.replace(/\\"/g, '"')
-  const re = /"([A-Za-z]*(?:[Oo]pen|[Pp]re[Ss]ale|[Pp]resale|[Bb]ooking|[Ss]ale[A-Z]|[Ff]an[Cc]lub|[Rr]ound)[A-Za-z]*)"\s*:\s*("[^"]{0,120}"|-?[\d.]+|null|true|false|\[|\{)/g
-  const seen = new Map()
-  for (const m of t.matchAll(re)) {
-    if (!seen.has(m[1])) seen.set(m[1], m[2])
-    if (seen.size > 60) break
+// The page embeds its data as escaped JSON; undo one level of escaping
+const unesc = (s) => s.replace(/\\\\/g, "\u0000").replace(/\\"/g, '"').replace(/\u0000/g, "\\")
+
+// Value after "key": — balanced for arrays/objects, else a string/number
+function valueOf(t, key, from = 0) {
+  const k = t.indexOf(`"${key}":`, from)
+  if (k === -1) return null
+  let i = k + key.length + 3
+  while (t[i] === " ") i++
+  const open = t[i]
+  if (open === "[" || open === "{") {
+    const close = open === "[" ? "]" : "}"
+    let depth = 0, inStr = false
+    for (let j = i; j < t.length && j < i + 20000; j++) {
+      const c = t[j]
+      if (inStr) { if (c === "\\") j++; else if (c === '"') inStr = false; continue }
+      if (c === '"') inStr = true
+      else if (c === open) depth++
+      else if (c === close && --depth === 0) return t.slice(i, j + 1)
+    }
+    return t.slice(i, i + 500)
   }
-  return [...seen.entries()].map(([k, v]) => `${k}=${cut(v, 120)}`)
+  if (open === '"') { const e = t.indexOf('"', i + 1); return t.slice(i, e + 1) }
+  return t.slice(i, i + 30).split(/[,}\]]/)[0]
 }
 
-function textOf(html) {
-  return html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ")
+function allValues(t, key, max = 5) {
+  const vals = []; let from = 0
+  while (vals.length < max) {
+    const k = t.indexOf(`"${key}":`, from)
+    if (k === -1) break
+    vals.push(cut(valueOf(t, key, k), 160)); from = k + 1
+  }
+  return [...new Set(vals)]
 }
 
 async function main() {
-  log("# Probe", new Date().toISOString())
+  log("# Probe 2", new Date().toISOString())
 
-  // A. Products whose ticket open is still ahead (most likely to have presale info)
+  // Products whose ticket open is still ahead, from all genres
   const now = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ")
   const picks = []
-  for (const g of ["CONCERT", "MUSICAL"]) {
-    for (let p = 0; p < 5 && picks.length < 6; p++) {
+  for (const g of ["CONCERT", "MUSICAL", "SPORTS", "EXHIBIT"]) {
+    for (let p = 0; p < 5; p++) {
       const r = await get(`https://world.nol.com/api/ent-channel-out/v1/goods/list?languageType=KO&includeNonPartnerGoods=true&goodsStatus=Y,D&genreType=${g}&page=${p}&size=100`, { accept: "application/json" })
-      let d; try { d = JSON.parse(r.text).data } catch { log("A list fail", g, r.status); break }
-      for (const c of d.content) if ((c.bookingOpenTime || "") > now && picks.length < 6) picks.push(c)
+      let d; try { d = JSON.parse(r.text).data } catch { break }
+      for (const c of d.content) if ((c.bookingOpenTime || "") > now) picks.push({ code: c.goodsCode, listName: c.goodsName, open: c.bookingOpenTime, globalType: c.globalType })
       if (p >= d.totalPages - 1) break
     }
   }
-  log("\n## A. upcoming opens", picks.length)
-  for (const c of picks) log("-", c.goodsCode, cut(c.goodsName, 60), "| open", c.bookingOpenTime, "| list keys:", scheduleFields(JSON.stringify(c)).join(", "))
-  const codes = picks.slice(0, 4).map((c) => c.goodsCode)
+  log("upcoming opens:", picks.length)
 
-  // B. Domestic product summary: every key + schedule-like fields
-  log("\n## B. interpark summary")
-  for (const code of codes) {
-    const r = await get(`https://api-ticketfront.interpark.com/v1/goods/${code}/summary`, { accept: "application/json", referer: "https://tickets.interpark.com/" })
-    let d; try { d = JSON.parse(r.text).data } catch {}
-    log("-", code, r.status, d ? "keys: " + Object.keys(d).join(",") : cut(r.text, 150))
-    if (d) log("  fields:", scheduleFields(JSON.stringify(d)).join(" ; "))
+  // Korean NOL product page for each (up to 30)
+  let shown = 0, withPresale = 0, totalMs = 0, totalLen = 0, n = 0
+  log("\n## Pages")
+  for (const c of picks.slice(0, 30)) {
+    const r = await get(`https://nol.yanolja.com/ticket/products/${c.code}`)
+    totalMs += r.ms; totalLen += r.text.length; n++
+    const t = unesc(r.text)
+    const presales = valueOf(t, "presales")
+    const has = presales && presales !== "[]"
+    if (has) withPresale++
+    log(`- ${c.code} ${r.status} ${r.ms}ms | list: ${cut(c.listName, 50)} | world: ${c.globalType || "-"}`)
+    log(`  goodsName: ${allValues(t, "goodsName", 3).join(" / ")}`)
+    log(`  placeName: ${allValues(t, "placeName", 3).join(" / ")}`)
+    log(`  bookingOpenTime=${valueOf(t, "bookingOpenTime")} ticketOpenType=${valueOf(t, "ticketOpenType")} ticketOpenTypeName=${valueOf(t, "ticketOpenTypeName")} ticketOtherOpenName=${valueOf(t, "ticketOtherOpenName")} ticketOpenDate=${valueOf(t, "ticketOpenDate")}`)
+    if (has && shown < 4) { log(`  presales RAW: ${cut(presales, 1500)}`); shown++ }
+    else log(`  presales: ${cut(presales, 200)}`)
   }
-  // other per-product endpoints that may hold sale rounds
-  for (const path of ["booking-notice", "notice", "sales-info", "presale", "playSeq", "detail"]) {
-    const r = await get(`https://api-ticketfront.interpark.com/v1/goods/${codes[0]}/${path}`, { accept: "application/json", referer: "https://tickets.interpark.com/" })
-    log("  try", path, r.status, cut(r.text, 200))
-  }
+  log(`\npages: ${n}, with presales: ${withPresale}, avg ${Math.round(totalMs / Math.max(n, 1))}ms, avg ${Math.round(totalLen / Math.max(n, 1) / 1024)}KB`)
 
-  // C/D. Product pages (NOL World + domestic NOL)
-  for (const [label, base] of [["C. world.nol.com page", "https://world.nol.com/en/ticket/products/"], ["D. nol.yanolja.com page", "https://nol.yanolja.com/ticket/products/"], ["D2. tickets.interpark.com page", "https://tickets.interpark.com/goods/"]]) {
-    log("\n## " + label)
-    for (const code of codes.slice(0, 2)) {
-      const r = await get(base + code)
-      log("-", code, r.status, r.url, "len", r.text.length)
-      log("  fields:", scheduleFields(r.text).join(" ; "))
-      const t = textOf(r.text)
-      const i = t.search(/선예매|일반예매|티켓\s*오픈|Pre-?sale|General (sale|booking)|Ticket Open/i)
-      if (i > -1) log("  text:", cut(t.slice(Math.max(0, i - 80), i + 320), 400))
-    }
-  }
+  // A product already on sale with no upcoming open (to see what stays after opening)
+  log("\n## On-sale product")
+  const r = await get("https://nol.yanolja.com/ticket/products/26013946")
+  const t = unesc(r.text)
+  log(`- 26013946 ${r.status} goodsName: ${allValues(t, "goodsName", 3).join(" / ")} | placeName: ${allValues(t, "placeName", 2).join(" / ")}`)
+  log(`  bookingOpenTime=${valueOf(t, "bookingOpenTime")} ticketOpenType=${valueOf(t, "ticketOpenType")} ticketOtherOpenName=${valueOf(t, "ticketOtherOpenName")} ticketOpenDate=${valueOf(t, "ticketOpenDate")}`)
+  log(`  presales: ${cut(valueOf(t, "presales"), 800)}`)
 
-  // E. Ticket open notice board (new site): API discovery
-  log("\n## E. tickets.interpark.com/contents/notice")
-  const np = await get("https://tickets.interpark.com/contents/notice")
-  log("-", np.status, np.url, "len", np.text.length, "fields:", scheduleFields(np.text).slice(0, 25).join(" ; "))
-  const srcs = [...new Set([...np.text.matchAll(/<script[^>]+src="([^"]+)"/g)].map((m) => m[1]))]
-  const hits = new Set()
-  for (const s of [np.text, ...(await Promise.all(srcs.slice(0, 40).map(async (u) => (await get(u.startsWith("http") ? u : "https://tickets.interpark.com" + u)).text)))]) {
-    for (const m of s.matchAll(/["'`]((?:https?:\/\/[a-z0-9.-]+)?\/[A-Za-z0-9_\-/{}$.]*(?:notice|Notice|open|Open)[A-Za-z0-9_\-/{}$.?=&]*)["'`]/g)) hits.add(m[1])
-  }
-  const cands = [...hits].filter((h) => !/\.(png|jpg|svg|css)$/.test(h)).slice(0, 40)
-  log("  candidates:", cands.join(" | "))
-  const tried = new Set()
-  for (const c of cands) {
-    if (c.includes("${") || c.includes("{")) continue
-    for (const host of c.startsWith("http") ? [""] : ["https://api-ticketfront.interpark.com", "https://tickets.interpark.com"]) {
-      const u = host + c
-      if (tried.has(u) || tried.size >= 14) continue
-      tried.add(u)
-      const r = await get(u, { accept: "application/json", referer: "https://tickets.interpark.com/contents/notice" })
-      if (r.status === 200 && /json/.test(r.ct)) log("  OK", u, cut(r.text, 700))
-      else log("  ", r.status, u)
-    }
-  }
-
-  // F. Classic notice board (webzine)
-  log("\n## F. ticket.interpark.com webzine notice list")
-  const lst = await get("https://ticket.interpark.com/webzine/paper/TPNoticeList.asp", {}, "euc-kr")
-  const links = [...new Set([...lst.text.matchAll(/TPNoticeView\.asp\?[^"'\s>]+/g)].map((m) => m[0].replace(/&amp;/g, "&")))]
-  log("-", lst.status, lst.url, "len", lst.text.length, "links", links.length)
-  log("  list text:", cut(textOf(lst.text).replace(/.*?(오픈|공지)/, "$1"), 700))
-  for (const l of links.slice(0, 2)) {
-    const v = await get("https://ticket.interpark.com/webzine/paper/" + l, {}, "euc-kr")
-    const t = textOf(v.text)
-    const i = t.search(/선예매|일반예매|티켓\s*오픈|오픈\s*일시/)
-    log("- view", l, v.status, "goods links:", [...new Set([...v.text.matchAll(/(?:GoodsCode=|goods\/|products\/)(\d{8})/gi)].map((m) => m[1]))].slice(0, 5).join(","))
-    log("  text:", cut(t.slice(Math.max(0, i - 100), i + 900), 1000))
-  }
+  // Current Korean name cache in the repository
+  log("\n## Repository data")
+  try {
+    const names = JSON.parse(fs.readFileSync("data/names-ko.json", "utf8"))
+    log("names-ko.json entries:", Object.keys(names).length)
+  } catch (e) { log("names-ko.json:", String(e).slice(0, 100)) }
+  try {
+    const ev = JSON.parse(fs.readFileSync("site/events.json", "utf8"))
+    const w = ev.events.filter((e) => e.world)
+    log("events.json updatedAt:", ev.updatedAt, "events:", ev.events.length, "world:", w.length, "world with Korean name different from NOL World name:", w.filter((e) => e.nameKo !== e.name).length)
+  } catch (e) { log("events.json:", String(e).slice(0, 100)) }
 }
 
 try { await main() } catch (e) { log("ERR", String(e && e.stack || e)) }
 const report = out.join("\n")
 fs.mkdirSync("site", { recursive: true })
-fs.writeFileSync("site/probe.txt", report)
+fs.writeFileSync("site/probe2.txt", report)
 if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "```\n" + report.slice(0, 60000) + "\n```\n")
