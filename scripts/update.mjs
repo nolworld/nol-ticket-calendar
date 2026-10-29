@@ -370,11 +370,54 @@ async function main() {
   fs.mkdirSync("data", { recursive: true })
   fs.writeFileSync(OUT, JSON.stringify(data))
   fs.writeFileSync(NAMES, JSON.stringify(names, null, 0))
+  await probeShowTimes(events)
   console.log(
     `Updated ${events.length} NOL products (${events.filter((e) => e.world).length} on NOL World);`,
     `product pages read ${lookup.read}/${lookup.due} (failed ${lookup.failed} ${JSON.stringify(lookup.statuses)}${lookup.stopped ? ", stopped: " + lookup.stopped : ""}) in ${Math.round((Date.now() - started) / 1000)}s`,
     JSON.stringify(counts),
   )
+}
+
+// ---------- temporary check: where do show start times live? (writes site/debug.txt) ----------
+async function probeShowTimes(events) {
+  const out = []
+  const log = (...a) => out.push(a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "))
+  try {
+    const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)
+    const soon = events.filter((e) => e.start >= today)
+    const picks = [
+      ...soon.filter((e) => e.genre === "c" && e.start === e.end).slice(0, 2),
+      ...soon.filter((e) => e.genre === "c" && e.start !== e.end).slice(0, 1),
+      ...events.filter((e) => e.genre === "mu" && e.end >= today && e.start < today).slice(0, 2),
+      ...soon.filter((e) => e.genre === "sp").slice(0, 1),
+    ]
+    for (const e of picks) {
+      const res = await fetch(PRODUCT_PAGE + e.id, { headers: { "user-agent": PAGE_UA, "accept-language": "ko-KR,ko;q=0.9" }, signal: AbortSignal.timeout(20_000) })
+      const t = unesc(await res.text())
+      log(`\n## ${e.id} ${res.status} ${e.genre} ${e.start}~${e.end} ${e.nameKo}`)
+      const f = productFields(t, e.id)
+      log("own keys:", Object.keys(f).join(","))
+      const seen = new Map()
+      for (const m of t.matchAll(/"([A-Za-z]*(?:[Tt]ime|[Ss]eq|[Rr]ound|[Hh]our|[Ss]chedule|[Pp]lay[A-Z][A-Za-z]*|[Ss]how[A-Z][A-Za-z]*))"\s*:\s*("[^"]{0,80}"|-?[\d.]+|null|true|false|\[|\{)/g)) {
+        if (!seen.has(m[1])) seen.set(m[1], m[2])
+        if (seen.size > 70) break
+      }
+      log("time-like keys:", [...seen.entries()].map(([k, v]) => `${k}=${v.slice(0, 60)}`).join(" ; "))
+      for (const key of ["playSeqs", "playSeqList", "playDates", "playTimes", "schedules", "rounds", "performances", "playDateTimes", "playTime", "runningTime"]) {
+        const v = rawValue(t, key)
+        if (v) log(`RAW ${key}:`, v.slice(0, 700))
+      }
+      const text = t.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+      for (const kw of ["공연시간", "관람시간", "회차", "공연 시간"]) {
+        const i = text.indexOf(kw)
+        if (i > -1) log(`text "${kw}":`, text.slice(Math.max(0, i - 40), i + 260))
+      }
+      await new Promise((r) => setTimeout(r, 600))
+    }
+  } catch (err) {
+    log("ERR", String(err))
+  }
+  fs.writeFileSync("site/debug.txt", out.join("\n"))
 }
 
 main().catch((err) => {
