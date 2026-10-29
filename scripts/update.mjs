@@ -143,48 +143,77 @@ function salesOf(t) {
     .sort((a, b) => a.start.localeCompare(b.start))
 }
 
+// Returns { data } on success, or { status } (HTTP status, or 0 for a network error)
 async function fetchProduct(code) {
   try {
     const res = await fetch(PRODUCT_PAGE + code, {
       headers: { "user-agent": PAGE_UA, "accept-language": "ko-KR,ko;q=0.9" },
       signal: AbortSignal.timeout(20_000),
     })
-    if (!res.ok) return null
+    if (!res.ok) return { status: res.status }
     const t = unesc(await res.text())
     const name = value(t, "goodsName")
-    if (typeof name !== "string" || !name.trim()) return null
+    if (typeof name !== "string" || !name.trim()) return { status: "no-data" }
     const venue = value(t, "placeName")
-    return { n: name.trim(), v: typeof venue === "string" ? venue.trim() : "", s: salesOf(t) }
+    return { data: { n: name.trim(), v: typeof venue === "string" ? venue.trim() : "", s: salesOf(t) } }
   } catch {
-    return null
+    return { status: 0 }
   }
 }
 
-// Reads product pages that are due and updates the cache in place
-async function updateProducts(goods, cache) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const MAX_READS = 350             // product pages per run; the rest continue the next day
+const READ_BUDGET = 11 * 60e3     // stop reading pages after 11 minutes
+const BLOCKED = new Set([403, 429, 503, 0])
+
+// Reads product pages that are due, slowly, and updates the cache in place.
+// Order: ticket open coming up (presales matter most) -> NOL World -> the rest.
+async function updateProducts(goods, worldCodes, cache) {
   const now = Date.now()
   const recent = new Date(now + 9 * 3600e3 - 2 * 864e5).toISOString().slice(0, 16).replace("T", " ") // KST, 2 days ago
   const byCode = new Map()
   for (const g of goods) if (g.goodsCode && !byCode.has(g.goodsCode)) byCode.set(g.goodsCode, g)
+  const rank = (g) => {
+    const c = cache[g.goodsCode]
+    const opens = [g.bookingOpenTime ?? "", ...((c && c.s) || []).map((x) => x.start)]
+    if (opens.some((o) => o >= recent)) return 0
+    return worldCodes.has(g.goodsCode) ? 1 : 2
+  }
   const due = [...byCode.values()].filter((g) => {
     const c = cache[g.goodsCode]
     if (!c || Array.isArray(c) || !c.t) return true
     if (now - c.t > NAME_TTL) return true
-    // ticket open (general or presale) still ahead or just passed: re-check every day
-    const opens = [g.bookingOpenTime ?? "", ...(c.s ?? []).map((x) => x.start)]
-    return opens.some((o) => o >= recent) && now - c.t > 12 * 3600e3
-  }).map((g) => g.goodsCode)
-  let i = 0, ok = 0
+    return rank(g) === 0 && now - c.t > 12 * 3600e3 // open coming up: re-check every day
+  }).sort((a, b) => rank(a) - rank(b) || (cache[a.goodsCode] ? 1 : 0) - (cache[b.goodsCode] ? 1 : 0))
+    .map((g) => g.goodsCode)
+
+  const stats = { due: due.length, read: 0, failed: 0, statuses: {}, stopped: null }
+  const queue = due.slice(0, MAX_READS)
+  let i = 0, blockedInRow = 0
   async function worker() {
-    while (i < due.length) {
-      const code = due[i++]
-      const r = await fetchProduct(code)
-      if (r) { cache[code] = { ...r, t: Date.now() }; ok++ }
-      await new Promise((res) => setTimeout(res, 150))
+    while (i < queue.length && !stats.stopped) {
+      if (Date.now() - now > READ_BUDGET) { stats.stopped = "time"; break }
+      const code = queue[i++]
+      let r = await fetchProduct(code)
+      if (r.status !== undefined && BLOCKED.has(r.status)) {
+        await sleep(20_000) // back off once, then retry
+        r = await fetchProduct(code)
+      }
+      if (r.data) {
+        cache[code] = { ...r.data, t: Date.now() }
+        stats.read++
+        blockedInRow = 0
+      } else {
+        stats.failed++
+        stats.statuses[r.status] = (stats.statuses[r.status] || 0) + 1
+        if (BLOCKED.has(r.status) && ++blockedInRow >= 4) stats.stopped = "blocked"
+      }
+      await sleep(600)
     }
   }
-  await Promise.all(Array.from({ length: 4 }, worker))
-  return { due: due.length, updated: ok }
+  await Promise.all(Array.from({ length: 2 }, worker))
+  if (!stats.stopped && due.length > queue.length) stats.stopped = "limit"
+  return stats
 }
 
 const valid = (g) => !!g.goodsCode && !!g.goodsName && DATE.test(g.playStartDate) && DATE.test(g.playEndDate)
@@ -230,7 +259,9 @@ async function main() {
   try { names = JSON.parse(fs.readFileSync(NAMES, "utf8")) } catch {}
   const all = results.flat()
   const codes = [...new Set(all.map((g) => g.goodsCode).filter(Boolean))]
-  const lookup = await updateProducts(all, names)
+  const worldCodes = new Set()
+  jobs.forEach((job, i) => { if (job.scope === "world") for (const g of results[i]) worldCodes.add(g.goodsCode) })
+  const lookup = await updateProducts(all, worldCodes, names)
   const live = new Set(codes)
   for (const code of Object.keys(names)) if (!live.has(code)) delete names[code]
 
@@ -267,14 +298,16 @@ async function main() {
   if (!events.some((e) => e.world)) throw new Error("NOL World returned no products")
   events.sort((a, b) => a.start.localeCompare(b.start) || a.id.localeCompare(b.id))
 
-  const data = { updatedAt: new Date().toISOString(), source: "https://world.nol.com/en/ticket", counts, events }
+  const cached = codes.filter((c) => names[c] && !Array.isArray(names[c])).length
+  const pages = { ...lookup, cached, total: codes.length, withPresale: events.filter((e) => e.sales).length }
+  const data = { updatedAt: new Date().toISOString(), pages, source: "https://world.nol.com/en/ticket", counts, events }
   fs.mkdirSync("site", { recursive: true })
   fs.mkdirSync("data", { recursive: true })
   fs.writeFileSync(OUT, JSON.stringify(data))
   fs.writeFileSync(NAMES, JSON.stringify(names, null, 0))
   console.log(
     `Updated ${events.length} NOL products (${events.filter((e) => e.world).length} on NOL World);`,
-    `product pages read ${lookup.updated}/${lookup.due} in ${Math.round((Date.now() - started) / 1000)}s`,
+    `product pages read ${lookup.read}/${lookup.due} (failed ${lookup.failed} ${JSON.stringify(lookup.statuses)}${lookup.stopped ? ", stopped: " + lookup.stopped : ""}) in ${Math.round((Date.now() - started) / 1000)}s`,
     JSON.stringify(counts),
   )
 }
