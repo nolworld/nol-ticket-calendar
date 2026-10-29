@@ -211,6 +211,21 @@ function tidyTime(s) {
     .slice(0, 300)
 }
 
+// Shorter dates for display: "2026년 10월 30일(금) 7PM(KST)" -> "30일(금) 7PM".
+// Products running longer than two weeks keep the month ("7월 1일(수) ~ 12월 31일(목)").
+function shortenDates(text, keepMonth) {
+  if (!text) return text
+  const day = (mo, d) => (keepMonth ? `${+mo}월 ${+d}일` : `${+d}일`)
+  let t = text.replace(/\s*\(KST\)/gi, "")
+  // with year: 2026년 10월 30일 / 2026.10.31 / 2026-11-07 / 2026. 11. 7.
+  t = t.replace(/20\d{2}\s*[년.\-/]\s*(\d{1,2})\s*[월.\-/]\s*(\d{1,2})\s*[일.]?/g, (m, mo, d) => day(mo, d))
+  // without year: 10월 30일 / 07월 01일
+  t = t.replace(/(?<![\d.])(\d{1,2})월\s*(\d{1,2})일/g, (m, mo, d) => day(mo, d))
+  // 10/29(목) -> 29일(목), only when months are dropped
+  if (!keepMonth) t = t.replace(/(?<![\d/])(\d{1,2})\/(\d{1,2})(?=\s*\()/g, (m, mo, d) => `${+d}일`)
+  return t.replace(/일\s+\(/g, "일(").replace(/\s+/g, " ").trim()
+}
+
 // Returns { data } on success, or { status } (HTTP status, or 0 for a network error)
 async function fetchProduct(code) {
   try {
@@ -345,7 +360,7 @@ function baseEvent(g, genre, names, onWorld) {
     nameKo: onWorld ? (c?.n || listName) : (HANGUL.test(listName) || !c?.n ? listName : c.n),
     venueKo: c?.v || (g.placeName ?? "").trim(),
     sales: c?.s?.length ? c.s : undefined,
-    time: (c?.pt && tidyTime(c.pt)) || undefined,
+    time: (c?.pt && shortenDates(tidyTime(c.pt), (Date.parse(g.playEndDate) - Date.parse(g.playStartDate)) / 864e5 > 14)) || undefined,
     runtime: c?.rt || undefined,
     krUrl: `https://nol.yanolja.com/ticket/products/${g.goodsCode}`,
     world: false,
