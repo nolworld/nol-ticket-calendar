@@ -3,15 +3,17 @@
 //
 // One pass with NOL World's filter (globalType=EN) gives the products sold on
 // NOL World with their NOL World names; one pass without it gives every NOL
-// product. Korean names and venues come from the domestic NOL product data and
-// are cached in data/names-ko.json so only new products are looked up each day.
+// product. Korean names, venues and presale schedules come from each product's
+// Korean NOL page and are cached in data/names-ko.json, so each day only new
+// products, products with a ticket open coming up, and entries older than 7
+// days are read again.
 //
 // If any list fails, the script exits with an error before writing anything, so
 // the site keeps the previous day's data.
 import fs from "node:fs"
 
 const API = "https://world.nol.com/api/ent-channel-out/v1/goods/list"
-const DOMESTIC = "https://api-ticketfront.interpark.com/v1/goods"
+const PRODUCT_PAGE = "https://nol.yanolja.com/ticket/products/"
 const PAGE_SIZE = 100 // the endpoint rejects anything above 100
 const GENRES = ["CONCERT", "MUSICAL", "SPORTS", "EXHIBIT"]
 const SCOPES = {
@@ -22,6 +24,8 @@ const OUT = "site/events.json"
 const NAMES = "data/names-ko.json"
 const NAME_TTL = 7 * 24 * 60 * 60 * 1000 // re-check a cached Korean name after 7 days
 const UA = "Mozilla/5.0 (compatible; nol-ticket-calendar/1.0)"
+// Product pages are read the same way they were verified (an ordinary browser request)
+const PAGE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 
 // Concert sub-genres -> calendar chip. Anything else is "c" (콘서트).
 const CONCERT_SUB = { "03017": "i", "03024": "f", "03006": "m", "03025": "m" }
@@ -76,33 +80,110 @@ async function fetchGenre(scope, genre) {
   return items
 }
 
-async function fetchKorean(code) {
+// ---------- Korean NOL product page ----------
+
+// The page embeds its data as escaped JSON; undo one level of escaping
+const unesc = (t) => t.replace(/\\\\/g, "\u0000").replace(/\\"/g, '"').replace(/\u0000/g, "\\")
+
+// Raw JSON text of the value after "key": (balanced for arrays/objects)
+function rawValue(t, key) {
+  const k = t.indexOf(`"${key}":`)
+  if (k === -1) return null
+  let i = k + key.length + 3
+  while (t[i] === " ") i++
+  const open = t[i]
+  if (open === "[" || open === "{") {
+    const close = open === "[" ? "]" : "}"
+    let depth = 0, inStr = false
+    for (let j = i; j < t.length && j < i + 50000; j++) {
+      const c = t[j]
+      if (inStr) { if (c === "\\") j++; else if (c === '"') inStr = false; continue }
+      if (c === '"') inStr = true
+      else if (c === open) depth++
+      else if (c === close && --depth === 0) return t.slice(i, j + 1)
+    }
+    return null
+  }
+  if (open === '"') {
+    let j = i + 1
+    while (j < t.length && t[j] !== '"') j += t[j] === "\\" ? 2 : 1
+    return t.slice(i, j + 1)
+  }
+  return t.slice(i, i + 30).split(/[,}\]]/)[0]
+}
+function value(t, key) {
+  const raw = rawValue(t, key)
+  if (raw == null) return null
+  try { return JSON.parse(raw) } catch { return null }
+}
+const minute = (s) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s) ? s.replace("T", " ").slice(0, 16) : null)
+
+// Presale rounds: [{ label, start, end|null }]
+function salesOf(t) {
+  const sales = []
+  const presales = value(t, "presales")
+  if (Array.isArray(presales)) {
+    for (const p of presales) {
+      const start = minute(p?.bookingOpenTime)
+      if (!start) continue
+      const button = String(p.buttonName ?? "").trim()
+      const label = button && button !== "선예매" ? button : String(p.preBookingKindName ?? "").trim() || "선예매"
+      sales.push({ label, start, end: minute(p.bookingEndTime) })
+    }
+  }
+  // Some products only announce the presale start (ticket open type 3 = other open)
+  if (!sales.length && value(t, "ticketOpenType") === 3) {
+    const start = minute(value(t, "ticketOpenDate"))
+    const label = String(value(t, "ticketOtherOpenName") ?? "").trim() || "선예매"
+    if (start) sales.push({ label, start, end: null })
+  }
+  const seen = new Set()
+  return sales
+    .filter((x) => { const k = x.label + x.start; if (seen.has(k)) return false; seen.add(k); return true })
+    .sort((a, b) => a.start.localeCompare(b.start))
+}
+
+async function fetchProduct(code) {
   try {
-    const res = await fetch(`${DOMESTIC}/${code}/summary`, {
-      headers: { accept: "application/json", referer: "https://tickets.interpark.com/", "user-agent": UA },
-      signal: AbortSignal.timeout(10_000),
+    const res = await fetch(PRODUCT_PAGE + code, {
+      headers: { "user-agent": PAGE_UA, "accept-language": "ko-KR,ko;q=0.9" },
+      signal: AbortSignal.timeout(20_000),
     })
     if (!res.ok) return null
-    const d = (await res.json())?.data
-    if (!d?.goodsName) return null
-    return [String(d.goodsName).trim(), String(d.placeName ?? "").trim()]
+    const t = unesc(await res.text())
+    const name = value(t, "goodsName")
+    if (typeof name !== "string" || !name.trim()) return null
+    const venue = value(t, "placeName")
+    return { n: name.trim(), v: typeof venue === "string" ? venue.trim() : "", s: salesOf(t) }
   } catch {
     return null
   }
 }
 
-async function updateNames(codes, cache) {
+// Reads product pages that are due and updates the cache in place
+async function updateProducts(goods, cache) {
   const now = Date.now()
-  const due = codes.filter((c) => !cache[c] || now - cache[c][2] > NAME_TTL)
+  const recent = new Date(now + 9 * 3600e3 - 2 * 864e5).toISOString().slice(0, 16).replace("T", " ") // KST, 2 days ago
+  const byCode = new Map()
+  for (const g of goods) if (g.goodsCode && !byCode.has(g.goodsCode)) byCode.set(g.goodsCode, g)
+  const due = [...byCode.values()].filter((g) => {
+    const c = cache[g.goodsCode]
+    if (!c || Array.isArray(c) || !c.t) return true
+    if (now - c.t > NAME_TTL) return true
+    // ticket open (general or presale) still ahead or just passed: re-check every day
+    const opens = [g.bookingOpenTime ?? "", ...(c.s ?? []).map((x) => x.start)]
+    return opens.some((o) => o >= recent) && now - c.t > 12 * 3600e3
+  }).map((g) => g.goodsCode)
   let i = 0, ok = 0
   async function worker() {
     while (i < due.length) {
       const code = due[i++]
-      const r = await fetchKorean(code)
-      if (r) { cache[code] = [r[0], r[1], Date.now()]; ok++ }
+      const r = await fetchProduct(code)
+      if (r) { cache[code] = { ...r, t: Date.now() }; ok++ }
+      await new Promise((res) => setTimeout(res, 150))
     }
   }
-  await Promise.all(Array.from({ length: 6 }, worker))
+  await Promise.all(Array.from({ length: 4 }, worker))
   return { due: due.length, updated: ok }
 }
 
@@ -122,14 +203,16 @@ function openOf(g) {
 }
 
 function baseEvent(g, genre, names) {
+  const c = names[g.goodsCode] && !Array.isArray(names[g.goodsCode]) ? names[g.goodsCode] : null
   return {
     id: g.goodsCode,
     genre: chipOf(g, genre),
     start: g.playStartDate,
     end: g.playEndDate < g.playStartDate ? g.playStartDate : g.playEndDate,
     open: openOf(g),
-    nameKo: names[g.goodsCode]?.[0] || g.goodsName.trim(),
-    venueKo: names[g.goodsCode]?.[1] || (g.placeName ?? "").trim(),
+    nameKo: c?.n || g.goodsName.trim(),
+    venueKo: c?.v || (g.placeName ?? "").trim(),
+    sales: c?.s?.length ? c.s : undefined,
     krUrl: `https://nol.yanolja.com/ticket/products/${g.goodsCode}`,
     world: false,
     name: null,
@@ -145,8 +228,9 @@ async function main() {
 
   let names = {}
   try { names = JSON.parse(fs.readFileSync(NAMES, "utf8")) } catch {}
-  const codes = [...new Set(results.flat().map((g) => g.goodsCode).filter(Boolean))]
-  const lookup = await updateNames(codes, names)
+  const all = results.flat()
+  const codes = [...new Set(all.map((g) => g.goodsCode).filter(Boolean))]
+  const lookup = await updateProducts(all, names)
   const live = new Set(codes)
   for (const code of Object.keys(names)) if (!live.has(code)) delete names[code]
 
@@ -190,7 +274,7 @@ async function main() {
   fs.writeFileSync(NAMES, JSON.stringify(names, null, 0))
   console.log(
     `Updated ${events.length} NOL products (${events.filter((e) => e.world).length} on NOL World);`,
-    `Korean names checked ${lookup.updated}/${lookup.due} in ${Math.round((Date.now() - started) / 1000)}s`,
+    `product pages read ${lookup.updated}/${lookup.due} in ${Math.round((Date.now() - started) / 1000)}s`,
     JSON.stringify(counts),
   )
 }
