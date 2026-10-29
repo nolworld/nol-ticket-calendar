@@ -160,7 +160,7 @@ function productFields(t, code) {
 // Presale rounds: [{ label, start, end|null }] from this product's own fields
 function salesOf(f) {
   const sales = []
-  const presales = f.presales
+  const presales = f.presales ?? f.preSales
   if (Array.isArray(presales)) {
     for (const p of presales) {
       const start = minute(p?.bookingOpenTime)
@@ -180,6 +180,28 @@ function salesOf(f) {
   return sales
     .filter((x) => { const k = x.label + x.start; if (seen.has(k)) return false; seen.add(k); return true })
     .sort((a, b) => a.start.localeCompare(b.start))
+}
+
+// First value of `key` anywhere inside an object (a few levels deep)
+function findKey(obj, key, depth = 0) {
+  if (!obj || typeof obj !== "object" || depth > 4) return undefined
+  if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key]
+  for (const v of Object.values(obj)) {
+    const r = findKey(v, key, depth + 1)
+    if (r !== undefined) return r
+  }
+  return undefined
+}
+
+// Show time text as written on NOL, tidied: "금 저녁 7시 30분", "10월30일(금) 19시30분 / 10월31일(토) 16시"
+function tidyTime(s) {
+  return String(s)
+    .split(/\r?\n|<br\s*\/?>/i)
+    .map((x) => x.replace(/^[\s\-•·*※]+/, "").replace(/^(공연|관람|경기)\s*(시간|일시)?\s*[:：]\s*/, "").trim())
+    .filter(Boolean)
+    .join(" / ")
+    .replace(/\s+/g, " ")
+    .slice(0, 160)
 }
 
 // Returns { data } on success, or { status } (HTTP status, or 0 for a network error)
@@ -204,7 +226,16 @@ async function fetchProduct(code) {
     }
     const venue = f.placeName
     const ps = typeof f.playStartDate === "string" ? f.playStartDate.slice(0, 10) : ""
-    return { data: { n: name.trim(), v: typeof venue === "string" ? venue.trim() : "", s: salesOf(f), ps, k: 3 } }
+    // Show time: this product's own fields first; the page-wide value only when the
+    // page's first product is this one (pages also list related products)
+    let info = findKey(f, "playTimeInfo"), start = findKey(f, "playTime")
+    if (info === undefined && start === undefined && value(t, "goodsName") === name) {
+      info = value(t, "playTimeInfo") ?? undefined
+    }
+    const pt = typeof info === "string" && info.trim() ? tidyTime(info)
+      : typeof start === "string" && /^\d{1,2}:\d{2}$/.test(start.trim()) ? start.trim() : ""
+    const rt = Number(findKey(f, "runningTime")) || 0
+    return { data: { n: name.trim(), v: typeof venue === "string" ? venue.trim() : "", s: salesOf(f), ps, pt, rt, k: 4 } }
   } catch {
     return { status: 0 }
   }
@@ -231,10 +262,10 @@ async function updateProducts(goods, worldCodes, cache) {
   }
   const due = [...byCode.values()].filter((g) => {
     const c = cache[g.goodsCode]
-    if (!c || Array.isArray(c) || !c.t || c.k !== 3) return true // k:3 = read with product-matched fields and page dates
+    if (!c || Array.isArray(c) || !c.t || c.k !== 4) return true // k:4 = product-matched fields, page dates and show times
     if (now - c.t > NAME_TTL) return true
     return rank(g) === 0 && now - c.t > 12 * 3600e3 // open coming up: re-check every day
-  }).sort((a, b) => rank(a) - rank(b) || (cache[a.goodsCode]?.k === 3 ? 1 : 0) - (cache[b.goodsCode]?.k === 3 ? 1 : 0))
+  }).sort((a, b) => rank(a) - rank(b) || (cache[a.goodsCode]?.k === 4 ? 1 : 0) - (cache[b.goodsCode]?.k === 4 ? 1 : 0))
     .map((g) => g.goodsCode)
 
   const stats = { due: due.length, read: 0, failed: 0, statuses: {}, stopped: null }
@@ -288,7 +319,7 @@ const HANGUL = /[\uAC00-\uD7A3]/
 // date differs from the list's is ignored.
 function pageData(g, names) {
   const c = names[g.goodsCode]
-  if (!c || Array.isArray(c) || c.k !== 3) return null
+  if (!c || Array.isArray(c) || c.k !== 4) return null
   if (c.ps && c.ps !== g.playStartDate) return null
   return c
 }
@@ -307,6 +338,8 @@ function baseEvent(g, genre, names, onWorld) {
     nameKo: onWorld ? (c?.n || listName) : (HANGUL.test(listName) || !c?.n ? listName : c.n),
     venueKo: c?.v || (g.placeName ?? "").trim(),
     sales: c?.s?.length ? c.s : undefined,
+    time: c?.pt || undefined,
+    runtime: c?.rt || undefined,
     krUrl: `https://nol.yanolja.com/ticket/products/${g.goodsCode}`,
     world: false,
     name: null,
@@ -363,61 +396,18 @@ async function main() {
   if (!events.some((e) => e.world)) throw new Error("NOL World returned no products")
   events.sort((a, b) => a.start.localeCompare(b.start) || a.id.localeCompare(b.id))
 
-  const cached = codes.filter((c) => names[c] && names[c].k === 3).length
+  const cached = codes.filter((c) => names[c] && names[c].k === 4).length
   const pages = { ...lookup, cached, total: codes.length, withPresale: events.filter((e) => e.sales).length }
   const data = { updatedAt: new Date().toISOString(), pages, source: "https://world.nol.com/en/ticket", counts, events }
   fs.mkdirSync("site", { recursive: true })
   fs.mkdirSync("data", { recursive: true })
   fs.writeFileSync(OUT, JSON.stringify(data))
   fs.writeFileSync(NAMES, JSON.stringify(names, null, 0))
-  await probeShowTimes(events)
   console.log(
     `Updated ${events.length} NOL products (${events.filter((e) => e.world).length} on NOL World);`,
     `product pages read ${lookup.read}/${lookup.due} (failed ${lookup.failed} ${JSON.stringify(lookup.statuses)}${lookup.stopped ? ", stopped: " + lookup.stopped : ""}) in ${Math.round((Date.now() - started) / 1000)}s`,
     JSON.stringify(counts),
   )
-}
-
-// ---------- temporary check: where do show start times live? (writes site/debug.txt) ----------
-async function probeShowTimes(events) {
-  const out = []
-  const log = (...a) => out.push(a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "))
-  try {
-    const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)
-    const soon = events.filter((e) => e.start >= today)
-    const picks = [
-      ...soon.filter((e) => e.genre === "c" && e.start === e.end).slice(0, 2),
-      ...soon.filter((e) => e.genre === "c" && e.start !== e.end).slice(0, 1),
-      ...events.filter((e) => e.genre === "mu" && e.end >= today && e.start < today).slice(0, 2),
-      ...soon.filter((e) => e.genre === "sp").slice(0, 1),
-    ]
-    for (const e of picks) {
-      const res = await fetch(PRODUCT_PAGE + e.id, { headers: { "user-agent": PAGE_UA, "accept-language": "ko-KR,ko;q=0.9" }, signal: AbortSignal.timeout(20_000) })
-      const t = unesc(await res.text())
-      log(`\n## ${e.id} ${res.status} ${e.genre} ${e.start}~${e.end} ${e.nameKo}`)
-      const f = productFields(t, e.id)
-      log("own keys:", Object.keys(f).join(","))
-      const seen = new Map()
-      for (const m of t.matchAll(/"([A-Za-z]*(?:[Tt]ime|[Ss]eq|[Rr]ound|[Hh]our|[Ss]chedule|[Pp]lay[A-Z][A-Za-z]*|[Ss]how[A-Z][A-Za-z]*))"\s*:\s*("[^"]{0,80}"|-?[\d.]+|null|true|false|\[|\{)/g)) {
-        if (!seen.has(m[1])) seen.set(m[1], m[2])
-        if (seen.size > 70) break
-      }
-      log("time-like keys:", [...seen.entries()].map(([k, v]) => `${k}=${v.slice(0, 60)}`).join(" ; "))
-      for (const key of ["playSeqs", "playSeqList", "playDates", "playTimes", "schedules", "rounds", "performances", "playDateTimes", "playTime", "runningTime"]) {
-        const v = rawValue(t, key)
-        if (v) log(`RAW ${key}:`, v.slice(0, 700))
-      }
-      const text = t.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-      for (const kw of ["공연시간", "관람시간", "회차", "공연 시간"]) {
-        const i = text.indexOf(kw)
-        if (i > -1) log(`text "${kw}":`, text.slice(Math.max(0, i - 40), i + 260))
-      }
-      await new Promise((r) => setTimeout(r, 600))
-    }
-  } catch (err) {
-    log("ERR", String(err))
-  }
-  fs.writeFileSync("site/debug.txt", out.join("\n"))
 }
 
 main().catch((err) => {
