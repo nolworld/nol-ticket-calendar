@@ -198,6 +198,8 @@ details.grp .list { margin-top: 8px; }
 .item a.alt { color: var(--ink-2); font-weight: 500; }
 .item.open { border-left: 3px dashed var(--open); --c: var(--open); }
 .note { font-size: 13px; color: var(--ink-2); margin: 4px 0 0; }
+.item .when { margin: 2px 0 0; font-size: 13px; color: var(--ink-2); }
+.item .when b { font-weight: 600; color: var(--ink); margin-right: 6px; }
 .sales { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); font-size: 13px; display: grid; gap: 3px; }
 .sales p { margin: 0; display: grid; grid-template-columns: 7.5em 1fr; gap: 8px; }
 .sales .k { font-weight: 700; }
@@ -262,6 +264,7 @@ footer p { margin: 0 0 6px; }
     <p>NOL World(world.nol.com)와 국내 NOL의 콘서트, 뮤지컬, 스포츠, 전시 목록을 매일 오전 6시쯤(한국 시간) 새로 읽어 와요.</p>
     <p>‘NOL World 판매’ 보기에는 NOL World 목록에 올라온 상품만 나오고, 상품명은 NOL World에 등록된 이름 그대로 보여줘요. 국내 NOL 이름이 다르면 그 아래에 작게 적었어요. ‘NOL 전체’로 바꾸면 국내 NOL에서만 파는 일정도 함께 국내 이름으로 보여요.</p>
     <p>일주일 넘게 이어지는 일정은 달력에 시작일과 종료일만 표시하고, 날짜를 누르면 그날 진행 중인 목록에서 볼 수 있어요.</p>
+    <p>공연 시간은 NOL 상품 정보에 적힌 안내 문구를 그대로 옮겼어요. 매일 회차가 다른 장기 공연은 관람 시간만 보여줄 수 있어요.</p>
     <p>선예매가 있는 상품은 국내 NOL 상품 정보에 적힌 선예매 기간과 일반예매 오픈 시각을 함께 보여줘요. 팬클럽 인증 같은 참여 조건은 각 상품 페이지에서 확인하세요. 날짜와 회차는 바뀔 수 있으니 예매 전에 다시 확인하세요.</p>
   </footer>
 </div>
@@ -321,7 +324,8 @@ footer p { margin: 0 0 6px; }
       var long = (parse(e.end) - parse(e.start)) / 864e5 > 6;
       return { id: i, title: e.nameKo, wname: e.name, venue: e.venueKo, wvenue: e.venue, world: !!e.world,
         start: e.start, end: e.end, genre: e.genre, url: e.url, krUrl: e.krUrl, run: long,
-        open: e.open || null, sales: Array.isArray(e.sales) && e.sales.length ? e.sales : null };
+        open: e.open || null, sales: Array.isArray(e.sales) && e.sales.length ? e.sales : null,
+        time: e.time || null, runtime: e.runtime || null };
     });
     // Ticket opens: the general open, plus each presale round when there is one
     OPENS = [];
@@ -486,13 +490,20 @@ footer p { margin: 0 0 6px; }
     }
     return '<div class="sales" aria-label="예매 일정">' + rows.join('') + '</div>';
   }
+  // Show time as written on NOL ("경기 시작 18:30" for sports), plus running time
+  function whenHTML(e) {
+    var parts = [];
+    if (e.time) parts.push('<b>' + (e.genre === 'sp' ? '경기 시작' : '공연 시간') + '</b>' + esc(e.time));
+    if (e.runtime) parts.push((e.time ? '' : '<b>관람 시간</b>') + e.runtime + '분');
+    return parts.length ? '<p class="when">' + parts.join(' · ') + '</p>' : '';
+  }
   function itemHTML(e, withJump) {
     var acts = linksHTML(e);
     if (withJump) acts += '<button type="button" class="jump" data-jump="' + e.start + '">달력에서 보기</button>';
     return '<article class="item" style="--c:var(--g-' + e.genre + ')">' +
       '<div class="row"><span class="tag">' + esc(genreName(e.genre)) + '</span><span>' + fmtRange(e.start, e.end) + '</span></div>' +
       '<h4>' + esc(nameOf(e)) + '</h4>' + krLine(e) +
-      '<p class="venue">' + esc(venueOf(e)) + '</p>' + salesHTML(e) +
+      '<p class="venue">' + esc(venueOf(e)) + '</p>' + whenHTML(e) + salesHTML(e) +
       (e.run ? '<p class="note">' + (CONCERT[e.genre] ? '기간 중 일부 날짜에만 공연해요. 회차는 예매 페이지에서 확인하세요.' : '기간 내내 운영해요. 회차와 휴무일은 예매 페이지에서 확인하세요.') + '</p>' : '') +
       '<div class="acts">' + acts + '</div></article>';
   }
