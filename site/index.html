@@ -200,6 +200,10 @@ details.grp .list { margin-top: 8px; }
 .note { font-size: 13px; color: var(--ink-2); margin: 4px 0 0; }
 .item .when { margin: 2px 0 0; font-size: 13px; color: var(--ink-2); }
 .item .when b { font-weight: 600; color: var(--ink); margin-right: 6px; }
+.item .when.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.item .when.clamp.open { display: block; }
+.item .tmore { margin: 2px 0 0; padding: 0; border: 0; background: none; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
+.item .tmore:hover { text-decoration: underline; }
 .sales { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); font-size: 13px; display: grid; gap: 3px; }
 .sales p { margin: 0; display: grid; grid-template-columns: 7.5em 1fr; gap: 8px; }
 .sales .k { font-weight: 700; }
@@ -493,9 +497,19 @@ footer p { margin: 0 0 6px; }
   // Show time as written on NOL ("경기 시작 18:30" for sports), plus running time
   function whenHTML(e) {
     var parts = [];
-    if (e.time) parts.push('<b>' + (e.genre === 'sp' ? '경기 시작' : '공연 시간') + '</b>' + esc(e.time));
-    if (e.runtime) parts.push((e.time ? '' : '<b>관람 시간</b>') + e.runtime + '분');
-    return parts.length ? '<p class="when">' + parts.join(' · ') + '</p>' : '';
+    if (e.time) {
+      var label = e.genre === 'sp' ? (/^\d{1,2}:\d{2}$/.test(e.time) ? '경기 시작' : '경기 시간')
+        : e.genre === 'ex' ? '운영 안내' : '공연 시간';
+      parts.push('<b>' + label + '</b>' + esc(e.time));
+    }
+    if (e.runtime && e.genre !== 'ex') parts.push((e.time ? '' : '<b>관람 시간</b>') + e.runtime + '분');
+    if (!parts.length) return '';
+    var text = parts.join(' · ');
+    // Long notes (special performance days etc.) show two lines until expanded
+    if ((e.time || '').length > 70) {
+      return '<p class="when clamp">' + text + '</p><button type="button" class="tmore" aria-expanded="false">전체 보기</button>';
+    }
+    return '<p class="when">' + text + '</p>';
   }
   function itemHTML(e, withJump) {
     var acts = linksHTML(e);
@@ -567,6 +581,13 @@ footer p { margin: 0 0 6px; }
   }
 
   panelEl.addEventListener('click', function (e) {
+    var more = e.target.closest('.tmore');
+    if (more) {
+      var open = more.previousElementSibling.classList.toggle('open');
+      more.textContent = open ? '접기' : '전체 보기';
+      more.setAttribute('aria-expanded', String(open));
+      return;
+    }
     var b = e.target.closest('[data-jump]');
     if (!b) return;
     var s = b.dataset.jump < TODAY ? TODAY : b.dataset.jump;
