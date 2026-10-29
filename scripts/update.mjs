@@ -193,15 +193,22 @@ function findKey(obj, key, depth = 0) {
   return undefined
 }
 
-// Show time text as written on NOL, tidied: "금 저녁 7시 30분", "10월30일(금) 19시30분 / 10월31일(토) 16시"
+// Show time text as written on NOL, tidied for display: HTML tags and entities removed,
+// booking/cancel/sales-period notes dropped. Idempotent, so cached text is re-tidied.
+const TIME_SKIP = /^(예매\s*가능\s*(시간|일시)?|취소\s*(마감|가능)|매수\s*제한|판매\s*기간|유효\s*기간|공연\s*장소|장소|상품명|러닝\s*타임)\s*[:：)]?/
 function tidyTime(s) {
-  return String(s)
-    .split(/\r?\n|<br\s*\/?>/i)
-    .map((x) => x.replace(/^[\s\-•·*※]+/, "").replace(/^(공연|관람|경기)\s*(시간|일시)?\s*[:：]\s*/, "").trim())
-    .filter(Boolean)
+  let t = String(s ?? "")
+  if (/^\$[0-9a-z]+$/i.test(t.trim())) return "" // an unresolved page reference, not text
+  t = t.replace(/<\s*(br|\/?div|\/?p|\/?li)\b[^>]*>?/gi, "\n").replace(/<\/?[a-zA-Z][^>]*>?/g, " ")
+  t = t.replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&(bull|middot);/g, "·").replace(/&darr;/g, "↓").replace(/&amp;/g, "&").replace(/&[a-z]+;/g, " ")
+  const seen = new Set()
+  return t
+    .split(/\r?\n| \/ /)
+    .map((x) => x.replace(/^[\s\-•·*※ㅇ○▶►]+/, "").replace(/^(공연|관람|경기|운영)\s*(시간|일시)?\s*[:：)]\s*/, "").replace(/\s+/g, " ").trim())
+    .filter((x) => x && !TIME_SKIP.test(x) && !/자세히\s*보기/.test(x) && !/^<[^>]*$/.test(x) && x.length > 1 && !seen.has(x) && seen.add(x))
     .join(" / ")
-    .replace(/\s+/g, " ")
-    .slice(0, 160)
+    .slice(0, 300)
 }
 
 // Returns { data } on success, or { status } (HTTP status, or 0 for a network error)
@@ -338,7 +345,7 @@ function baseEvent(g, genre, names, onWorld) {
     nameKo: onWorld ? (c?.n || listName) : (HANGUL.test(listName) || !c?.n ? listName : c.n),
     venueKo: c?.v || (g.placeName ?? "").trim(),
     sales: c?.s?.length ? c.s : undefined,
-    time: c?.pt || undefined,
+    time: (c?.pt && tidyTime(c.pt)) || undefined,
     runtime: c?.rt || undefined,
     krUrl: `https://nol.yanolja.com/ticket/products/${g.goodsCode}`,
     world: false,
