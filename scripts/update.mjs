@@ -163,11 +163,12 @@ function salesOf(f) {
   const presales = f.presales ?? f.preSales
   if (Array.isArray(presales)) {
     for (const p of presales) {
-      const start = minute(p?.bookingOpenTime)
+      // concerts: bookingOpenTime/bookingEndTime, sports: minBookingOpenTime/maxBookingEndTime
+      const start = minute(p?.bookingOpenTime ?? p?.minBookingOpenTime)
       if (!start) continue
       const button = String(p.buttonName ?? "").trim()
       const label = button && button !== "선예매" ? button : String(p.preBookingKindName ?? "").trim() || "선예매"
-      sales.push({ label, start, end: minute(p.bookingEndTime) })
+      sales.push({ label, start, end: minute(p.bookingEndTime ?? p.maxBookingEndTime) })
     }
   }
   // Some products only announce the presale start (ticket open type 3 = other open)
@@ -257,7 +258,7 @@ async function fetchProduct(code) {
     const pt = typeof info === "string" && info.trim() ? tidyTime(info)
       : typeof start === "string" && /^\d{1,2}:\d{2}$/.test(start.trim()) ? start.trim() : ""
     const rt = Number(findKey(f, "runningTime")) || 0
-    return { data: { n: name.trim(), v: typeof venue === "string" ? venue.trim() : "", s: salesOf(f), ps, pt, rt, k: 4 } }
+    return { data: { n: name.trim(), v: typeof venue === "string" ? venue.trim() : "", s: salesOf(f), ps, pt, rt, k: 5 } }
   } catch {
     return { status: 0 }
   }
@@ -270,7 +271,7 @@ const BLOCKED = new Set([403, 429, 503, 0])
 
 // Reads product pages that are due, slowly, and updates the cache in place.
 // Order: ticket open coming up (presales matter most) -> NOL World -> the rest.
-async function updateProducts(goods, worldCodes, cache) {
+async function updateProducts(goods, worldCodes, sportsCodes, cache) {
   const now = Date.now()
   const recent = new Date(now + 9 * 3600e3 - 2 * 864e5).toISOString().slice(0, 16).replace("T", " ") // KST, 2 days ago
   const byCode = new Map()
@@ -284,10 +285,11 @@ async function updateProducts(goods, worldCodes, cache) {
   }
   const due = [...byCode.values()].filter((g) => {
     const c = cache[g.goodsCode]
-    if (!c || Array.isArray(c) || !c.t || c.k !== 4) return true // k:4 = product-matched fields, page dates and show times
+    if (!c || Array.isArray(c) || !c.t || (c.k || 0) < 4) return true // k:4 = product-matched fields, page dates and show times
+    if (sportsCodes.has(g.goodsCode) && c.k < 5) return true // k:5 = sports presale fields read
     if (now - c.t > NAME_TTL) return true
     return rank(g) === 0 && now - c.t > 12 * 3600e3 // open coming up: re-check every day
-  }).sort((a, b) => rank(a) - rank(b) || (cache[a.goodsCode]?.k === 4 ? 1 : 0) - (cache[b.goodsCode]?.k === 4 ? 1 : 0))
+  }).sort((a, b) => rank(a) - rank(b) || ((cache[a.goodsCode]?.k || 0) >= 4 ? 1 : 0) - ((cache[b.goodsCode]?.k || 0) >= 4 ? 1 : 0))
     .map((g) => g.goodsCode)
 
   const stats = { due: due.length, read: 0, failed: 0, statuses: {}, stopped: null }
@@ -341,7 +343,7 @@ const HANGUL = /[\uAC00-\uD7A3]/
 // date differs from the list's is ignored.
 function pageData(g, names) {
   const c = names[g.goodsCode]
-  if (!c || Array.isArray(c) || c.k !== 4) return null
+  if (!c || Array.isArray(c) || (c.k || 0) < 4) return null
   if (c.ps && c.ps !== g.playStartDate) return null
   return c
 }
@@ -381,7 +383,9 @@ async function main() {
   const codes = [...new Set(all.map((g) => g.goodsCode).filter(Boolean))]
   const worldCodes = new Set()
   jobs.forEach((job, i) => { if (job.scope === "world") for (const g of results[i]) worldCodes.add(g.goodsCode) })
-  const lookup = await updateProducts(all, worldCodes, names)
+  const sportsCodes = new Set()
+  jobs.forEach((job, i) => { if (job.genre === "SPORTS") for (const g of results[i]) sportsCodes.add(g.goodsCode) })
+  const lookup = await updateProducts(all, worldCodes, sportsCodes, names)
   const live = new Set(codes)
   for (const code of Object.keys(names)) if (!live.has(code)) delete names[code]
 
@@ -418,53 +422,18 @@ async function main() {
   if (!events.some((e) => e.world)) throw new Error("NOL World returned no products")
   events.sort((a, b) => a.start.localeCompare(b.start) || a.id.localeCompare(b.id))
 
-  const cached = codes.filter((c) => names[c] && names[c].k === 4).length
+  const cached = codes.filter((c) => names[c] && (names[c].k || 0) >= 4).length
   const pages = { ...lookup, cached, total: codes.length, withPresale: events.filter((e) => e.sales).length }
   const data = { updatedAt: new Date().toISOString(), pages, source: "https://world.nol.com/en/ticket", counts, events }
   fs.mkdirSync("site", { recursive: true })
   fs.mkdirSync("data", { recursive: true })
   fs.writeFileSync(OUT, JSON.stringify(data))
   fs.writeFileSync(NAMES, JSON.stringify(names, null, 0))
-  await probeSportsPresale(jobs, results)
   console.log(
     `Updated ${events.length} NOL products (${events.filter((e) => e.world).length} on NOL World);`,
     `product pages read ${lookup.read}/${lookup.due} (failed ${lookup.failed} ${JSON.stringify(lookup.statuses)}${lookup.stopped ? ", stopped: " + lookup.stopped : ""}) in ${Math.round((Date.now() - started) / 1000)}s`,
     JSON.stringify(counts),
   )
-}
-
-// ---------- temporary check: sports presale format (writes site/debug.txt) ----------
-async function probeSportsPresale(jobs, results) {
-  const out = []
-  const log = (...a) => out.push(a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "))
-  try {
-    const now = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ")
-    const sports = []
-    jobs.forEach((job, i) => { if (job.genre === "SPORTS" && job.scope === "all") sports.push(...results[i]) })
-    const upcoming = sports.filter((g) => (g.bookingOpenTime ?? "") > now)
-    const picks = [...upcoming.slice(0, 10), ...sports.filter((g) => !upcoming.includes(g)).slice(0, 3)]
-    log(`sports ${sports.length}, upcoming opens ${upcoming.length}`)
-    for (const g of picks) {
-      const res = await fetch(PRODUCT_PAGE + g.goodsCode, { headers: { "user-agent": PAGE_UA, "accept-language": "ko-KR,ko;q=0.9" }, signal: AbortSignal.timeout(20_000) })
-      const t = unesc(await res.text())
-      const f = productFields(t, g.goodsCode)
-      log(`\n## ${g.goodsCode} ${res.status} open=${g.bookingOpenTime} ${g.goodsName}`)
-      log("own preSales:", JSON.stringify(f.preSales ?? null).slice(0, 1500))
-      log("own presales:", JSON.stringify(f.presales ?? null).slice(0, 600))
-      log("own ticketOpen:", JSON.stringify({ t: f.ticketOpenType, n: f.ticketOtherOpenName, d: f.ticketOpenDate }))
-      log("sport keys:", f.sport && typeof f.sport === "object" ? Object.keys(f.sport).join(",") : String(f.sport))
-      const seen = new Set()
-      for (const m of t.matchAll(/"([A-Za-z]*[Pp]re[A-Za-z]*|[A-Za-z]*[Mm]ember[A-Za-z]*|[A-Za-z]*[Ss]eason[A-Za-z]*)"\s*:\s*("[^"]{0,60}"|-?[\d.]+|null|true|false|\[|\{)/g)) {
-        if (seen.size < 25 && !seen.has(m[1])) { seen.add(m[1]); log("  key", m[1], "=", m[2]) }
-      }
-      const raw = rawValue(t, "preSales")
-      if (raw && raw !== "[]") log("page preSales RAW:", raw.slice(0, 1500))
-      await new Promise((r) => setTimeout(r, 600))
-    }
-  } catch (err) {
-    log("ERR", String(err))
-  }
-  fs.writeFileSync("site/debug.txt", out.join("\n"))
 }
 
 main().catch((err) => {
