@@ -425,11 +425,46 @@ async function main() {
   fs.mkdirSync("data", { recursive: true })
   fs.writeFileSync(OUT, JSON.stringify(data))
   fs.writeFileSync(NAMES, JSON.stringify(names, null, 0))
+  await probeSportsPresale(jobs, results)
   console.log(
     `Updated ${events.length} NOL products (${events.filter((e) => e.world).length} on NOL World);`,
     `product pages read ${lookup.read}/${lookup.due} (failed ${lookup.failed} ${JSON.stringify(lookup.statuses)}${lookup.stopped ? ", stopped: " + lookup.stopped : ""}) in ${Math.round((Date.now() - started) / 1000)}s`,
     JSON.stringify(counts),
   )
+}
+
+// ---------- temporary check: sports presale format (writes site/debug.txt) ----------
+async function probeSportsPresale(jobs, results) {
+  const out = []
+  const log = (...a) => out.push(a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "))
+  try {
+    const now = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ")
+    const sports = []
+    jobs.forEach((job, i) => { if (job.genre === "SPORTS" && job.scope === "all") sports.push(...results[i]) })
+    const upcoming = sports.filter((g) => (g.bookingOpenTime ?? "") > now)
+    const picks = [...upcoming.slice(0, 10), ...sports.filter((g) => !upcoming.includes(g)).slice(0, 3)]
+    log(`sports ${sports.length}, upcoming opens ${upcoming.length}`)
+    for (const g of picks) {
+      const res = await fetch(PRODUCT_PAGE + g.goodsCode, { headers: { "user-agent": PAGE_UA, "accept-language": "ko-KR,ko;q=0.9" }, signal: AbortSignal.timeout(20_000) })
+      const t = unesc(await res.text())
+      const f = productFields(t, g.goodsCode)
+      log(`\n## ${g.goodsCode} ${res.status} open=${g.bookingOpenTime} ${g.goodsName}`)
+      log("own preSales:", JSON.stringify(f.preSales ?? null).slice(0, 1500))
+      log("own presales:", JSON.stringify(f.presales ?? null).slice(0, 600))
+      log("own ticketOpen:", JSON.stringify({ t: f.ticketOpenType, n: f.ticketOtherOpenName, d: f.ticketOpenDate }))
+      log("sport keys:", f.sport && typeof f.sport === "object" ? Object.keys(f.sport).join(",") : String(f.sport))
+      const seen = new Set()
+      for (const m of t.matchAll(/"([A-Za-z]*[Pp]re[A-Za-z]*|[A-Za-z]*[Mm]ember[A-Za-z]*|[A-Za-z]*[Ss]eason[A-Za-z]*)"\s*:\s*("[^"]{0,60}"|-?[\d.]+|null|true|false|\[|\{)/g)) {
+        if (seen.size < 25 && !seen.has(m[1])) { seen.add(m[1]); log("  key", m[1], "=", m[2]) }
+      }
+      const raw = rawValue(t, "preSales")
+      if (raw && raw !== "[]") log("page preSales RAW:", raw.slice(0, 1500))
+      await new Promise((r) => setTimeout(r, 600))
+    }
+  } catch (err) {
+    log("ERR", String(err))
+  }
+  fs.writeFileSync("site/debug.txt", out.join("\n"))
 }
 
 main().catch((err) => {
