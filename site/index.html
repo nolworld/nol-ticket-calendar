@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#3549FF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#17206E" media="(prefers-color-scheme: dark)">
 <title>NOL 티켓 캘린더</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,16 +14,17 @@
   color-scheme: light;
   --bg: #F5F4FA;
   --surface: #FFFFFF;
-  --surface-2: #ECEAF4;
+  --surface-2: #ECEEFA;
   --ink: #17142B;
-  --ink-2: #5C5873;
-  --line: #DAD7E6;
-  --accent: #5B3FD9;
+  --ink-2: #565B78;
+  --line: #D8DCF0;
+  --accent: #3549FF;
+  --brand: #3549FF;
   --sun: #C8274B;
   --sat: #2B5FB8;
   --today-bg: #17142B;
   --today-ink: #FFFFFF;
-  --sel: #5B3FD9;
+  --sel: #3549FF;
   --g-k: #7A4DE8;
   --g-c: #2B6CB0;
   --g-i: #D0336E;
@@ -41,18 +44,18 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #13111F; --surface: #1C1A2B; --surface-2: #262338; --ink: #EEECF7; --ink-2: #A6A2BD;
-    --line: #34304A; --accent: #A08CFF; --sun: #FF6B8A; --sat: #7FA8FF; --today-bg: #EEECF7;
-    --today-ink: #13111F; --sel: #A08CFF; --g-k: #A98BFF; --g-c: #6FA8E8; --g-i: #FF7AA8;
+    --bg: #10132A; --surface: #171B33; --surface-2: #222844; --ink: #ECEEF8; --ink-2: #A3A8C6;
+    --line: #323A61; --accent: #8C98FF; --sun: #FF6B8A; --sat: #7FA8FF; --today-bg: #ECEEF8;
+    --today-ink: #10132A; --sel: #8C98FF; --brand: #17206E; --g-k: #A98BFF; --g-c: #6FA8E8; --g-i: #FF7AA8;
     --g-f: #4FD1A5; --g-m: #F0B44C; --g-e: #9CA3AF; --open: #F59E0B;
     --g-mu: #5CC8DC; --g-sp: #A3D65C; --g-ex: #F08A5D;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #13111F; --surface: #1C1A2B; --surface-2: #262338; --ink: #EEECF7; --ink-2: #A6A2BD;
-  --line: #34304A; --accent: #A08CFF; --sun: #FF6B8A; --sat: #7FA8FF; --today-bg: #EEECF7;
-  --today-ink: #13111F; --sel: #A08CFF; --g-k: #A98BFF; --g-c: #6FA8E8; --g-i: #FF7AA8;
+  --bg: #10132A; --surface: #171B33; --surface-2: #222844; --ink: #ECEEF8; --ink-2: #A3A8C6;
+  --line: #323A61; --accent: #8C98FF; --sun: #FF6B8A; --sat: #7FA8FF; --today-bg: #ECEEF8;
+  --today-ink: #10132A; --sel: #8C98FF; --brand: #17206E; --g-k: #A98BFF; --g-c: #6FA8E8; --g-i: #FF7AA8;
   --g-f: #4FD1A5; --g-m: #F0B44C; --g-e: #9CA3AF; --open: #F59E0B;
     --g-mu: #5CC8DC; --g-sp: #A3D65C; --g-ex: #F08A5D;
 }
@@ -60,7 +63,7 @@ html { scroll-padding-top: env(safe-area-inset-top, 0px); }
 *, *::before, *::after { box-sizing: inherit; }
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--brand);
   color: var(--ink);
   font-family: var(--body);
   font-size: 15px;
@@ -91,6 +94,16 @@ button, input { font: inherit; color: inherit; }
 }
 .search input::placeholder { color: var(--ink-2); }
 
+/* On the NOL blue background */
+.top h1 { display: flex; align-items: center; gap: 10px; color: #fff; }
+.top h1 .logo { height: 26px; width: auto; display: block; }
+.top .sub { color: rgba(255,255,255,.82); }
+.top :focus-visible, .filters :focus-visible { outline-color: #fff; }
+.mode { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.28); }
+.mode button { color: rgba(255,255,255,.88); }
+.mode button[aria-pressed="true"] { background: #fff; color: #3549FF; }
+.search input { border-color: transparent; }
+
 /* Filters */
 .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 16px; }
 .chip {
@@ -100,11 +113,13 @@ button, input { font: inherit; color: inherit; }
   cursor: pointer; font-size: 14px; font-weight: 500;
 }
 .chip .sw { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
-.chip[aria-pressed="false"] { color: var(--ink-2); background: transparent; }
-.chip[aria-pressed="false"] .sw { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
+.chip { border-color: transparent; }
+.chip[aria-pressed="false"] { color: rgba(255,255,255,.88); background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.3); }
+.chip[aria-pressed="false"] .sw { background: transparent; box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.8); }
+.chip[aria-pressed="false"] .n { color: rgba(255,255,255,.7); }
 .chip.open-toggle .sw { background: transparent; border: 1.5px dashed var(--open); border-radius: 3px; }
 .chip.open-toggle[aria-pressed="false"] .sw { opacity: .5; }
-.sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 4px; }
+.sep { width: 1px; align-self: stretch; background: rgba(255,255,255,.35); margin: 2px 4px; }
 details.grp { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 10px; }
 details.grp summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink-2); padding: 4px 0; }
 details.grp .list { margin-top: 8px; }
@@ -198,6 +213,9 @@ details.grp .list { margin-top: 8px; }
 .item a.alt { color: var(--ink-2); font-weight: 500; }
 .item.open { border-left: 3px dashed var(--open); --c: var(--open); }
 .note { font-size: 13px; color: var(--ink-2); margin: 4px 0 0; }
+.gsec { display: flex; align-items: center; gap: 6px; margin: 14px 0 6px; font-size: 13px; font-weight: 700; color: var(--ink); }
+.gsec::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
+.gsec span { color: var(--ink-2); font-weight: 500; }
 .item .when { margin: 2px 0 0; font-size: 13px; color: var(--ink-2); }
 .item .when b { font-weight: 600; color: var(--ink); margin-right: 6px; }
 .item .when.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -214,7 +232,7 @@ details.grp .list { margin-top: 8px; }
 .status button { margin-left: 8px; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
 .status button:hover { text-decoration: underline; }
 
-footer { margin-top: 24px; color: var(--ink-2); font-size: 13px; max-width: 72ch; }
+footer { margin-top: 24px; color: rgba(255,255,255,.82); font-size: 13px; max-width: 72ch; }
 footer p { margin: 0 0 6px; }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -227,7 +245,7 @@ footer p { margin: 0 0 6px; }
 <div class="app">
   <header class="top">
     <div>
-      <h1>NOL 티켓 캘린더</h1>
+      <h1><img class="logo" src="data:image/png;base64,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" alt="NOL" width="69" height="26">티켓 캘린더</h1>
       <p class="sub" id="sub"></p>
     </div>
     <div class="ctl">
@@ -431,7 +449,7 @@ footer p { margin: 0 0 6px; }
       var d = i - first + 1;
       if (d < 1 || d > days) { html += '<div class="day blank" aria-hidden="true"></div>'; continue; }
       var date = ymd(y, m, d), dow = (first + d - 1) % 7;
-      var evs = eventsOn(date).concat(runEdgesOn(date));
+      var evs = eventsOn(date).sort(genreTimeOn(date)).concat(runEdgesOn(date).sort(genreTimeOn(date)));
       var ops = opensOn(date);
       var cls = 'day' + (dow === 0 ? ' sun' : '') + (dow === 6 ? ' sat' : '') +
         (date === TODAY ? ' today' : '') + (date < TODAY ? ' past' : '') + (state.selected === date ? ' sel' : '');
@@ -527,6 +545,55 @@ footer p { margin: 0 0 6px; }
       '<h4>' + esc(nameOf(o)) + '</h4>' + krLine(o) +
       '<div class="acts">' + linksHTML(o) + '</div></article>';
   }
+  // ---- ordering: genre (chip order), then start time on that date ----
+  var GENRE_ORDER = {};
+  GENRES.forEach(function (g, i) { GENRE_ORDER[g.id] = i; });
+  // First clock time in a piece of text, in minutes ("오후 7시 30분", "19:30", "7PM", "토 3시")
+  function clockOf(s) {
+    var re = /(오전|오후|저녁|밤|낮|AM|PM)?\s*(\d{1,2})\s*(?::\s*(\d{2})|시\s*(?:(\d{1,2})\s*분|(반))?|(?=\s*(?:AM|PM)\b))\s*(AM|PM)?/i;
+    var m = re.exec(s);
+    if (!m) return null;
+    var h = +m[2], min = +(m[3] || m[4] || (m[5] ? 30 : 0));
+    if (h > 24 || min > 59) return null;
+    var mer = ((m[1] || '') + (m[6] || '')).toUpperCase();
+    if (/오후|저녁|밤|PM/.test(mer) && h < 12) h += 12;
+    else if (/낮/.test(mer) && h < 6) h += 12;
+    else if (!mer && h >= 1 && h <= 9) h += 12; // "토 3시, 7시" - performances are in the afternoon/evening
+    return h * 60 + min;
+  }
+  // Start time of an event on a given date: the part of its time note for that date,
+  // then for that weekday, then the first time mentioned
+  function startMinute(e, date) {
+    var t = e.time;
+    if (!t) return null;
+    var parts = t.split(' / ');
+    var d = parse(date), day = d.getDate(), mon = d.getMonth() + 1, dow = DOW[d.getDay()];
+    var byDate = new RegExp('(^|[^\\d])(' + mon + '월\\s*)?' + day + '일');
+    var byDow = new RegExp('(^|[\\s,·(/|])' + dow + '(요일)?(?=[\\s,·)/|:]|$|\\d)');
+    var i, c;
+    for (i = 0; i < parts.length; i++) {
+      var m = byDate.exec(parts[i]); // read from where that date is written
+      if (m && (c = clockOf(parts[i].slice(m.index))) !== null) return c;
+    }
+    for (i = 0; i < parts.length; i++) if (byDow.test(parts[i]) && (c = clockOf(parts[i])) !== null) return c;
+    return clockOf(t);
+  }
+  function genreTimeOn(date) {
+    return function (a, b) {
+      var g = (GENRE_ORDER[a.genre] || 0) - (GENRE_ORDER[b.genre] || 0);
+      if (g) return g;
+      var x = startMinute(a, date), y = startMinute(b, date);
+      if (x === null && y === null) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return x - y;
+    };
+  }
+  // Across several dates: start date first, then genre and time on that date
+  function byStartGenreTime(a, b) {
+    if (a.start !== b.start) return a.start < b.start ? -1 : 1;
+    return genreTimeOn(a.start)(a, b);
+  }
   function byStart(a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; }
   function byEnd(a, b) { return a.end < b.end ? -1 : a.end > b.end ? 1 : 0; }
   function byOpen(a, b) { var x = a.date + a.time, y = b.date + b.time; return x < y ? -1 : x > y ? 1 : 0; }
@@ -545,7 +612,7 @@ footer p { margin: 0 0 6px; }
   function renderPanel() {
     var html = '';
     if (state.q) {
-      var hits = EVENTS.filter(function (e) { return visible(e) && e.end >= TODAY; }).sort(byStart);
+      var hits = EVENTS.filter(function (e) { return visible(e) && e.end >= TODAY; }).sort(byStartGenreTime);
       var oh = OPENS.filter(function (o) { return openVisible(o) && o.date >= TODAY; }).sort(byOpen);
       html += '<h2>검색 결과</h2><p class="meta">“' + esc(state.q) + '” 일정 ' + hits.length + '개' + (oh.length ? ', 티켓 오픈 ' + oh.length + '건' : '') + '</p>';
       if (!hits.length && !oh.length) html += '<p class="empty">일치하는 일정이 없어요. 다른 이름이나 장소로 검색하거나 꺼 둔 필터를 켜 보세요.</p>';
@@ -553,7 +620,7 @@ footer p { margin: 0 0 6px; }
       if (oh.length) html += '<h3 class="sec">티켓 오픈</h3><div class="list">' + oh.map(function (o) { return openHTML(o, true); }).join('') + '</div>';
     } else if (state.selected) {
       var d = parse(state.selected);
-      var evs = eventsOn(state.selected).sort(byStart);
+      var evs = eventsOn(state.selected).sort(genreTimeOn(state.selected));
       var runs = runsCovering(state.selected);
       var ops = opensOn(state.selected).sort(byOpen);
       html += '<h2>' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + DOW[d.getDay()] + '요일</h2>';
@@ -561,14 +628,25 @@ footer p { margin: 0 0 6px; }
       if (!evs.length && !runs.length && !ops.length) {
         html += '<p class="empty">이 날은 예정된 일정이 없어요. 다른 날짜를 고르거나, 꺼 둔 장르 필터나 ‘NOL 전체’ 보기를 확인해 보세요.</p>';
       }
-      if (evs.length) html += '<h3 class="sec">이날 일정</h3><div class="list">' + evs.map(function (e) { return itemHTML(e); }).join('') + '</div>';
+      if (evs.length) {
+        html += '<h3 class="sec">이날 일정</h3>';
+        var groups = [];
+        evs.forEach(function (e) {
+          var last = groups[groups.length - 1];
+          if (last && last.genre === e.genre) last.items.push(e); else groups.push({ genre: e.genre, items: [e] });
+        });
+        groups.forEach(function (g) {
+          html += '<h4 class="gsec" style="--c:var(--g-' + g.genre + ')">' + esc(genreName(g.genre)) + ' <span>' + g.items.length + '</span></h4>' +
+            '<div class="list">' + g.items.map(function (e) { return itemHTML(e); }).join('') + '</div>';
+        });
+      }
       if (ops.length) html += '<h3 class="sec">티켓 오픈</h3><div class="list">' + ops.map(function (o) { return openHTML(o); }).join('') + '</div>';
       if (runs.length) html += runGroupsHTML(runs, !evs.length && !ops.length);
     } else {
       var y = Math.floor(state.m / 12), m = state.m % 12 + 1;
       var a = ymd(y, m, 1), b = ymd(y, m, new Date(y, m, 0).getDate());
       var inMonth = EVENTS.filter(function (e) { return visible(e) && e.start <= b && e.end >= a && e.end >= TODAY; });
-      var list = inMonth.filter(function (e) { return !e.run; }).sort(byStart);
+      var list = inMonth.filter(function (e) { return !e.run; }).sort(byStartGenreTime);
       var mruns = inMonth.filter(function (e) { return e.run; });
       var mo = OPENS.filter(function (o) { return openVisible(o) && o.date >= a && o.date <= b && o.date >= TODAY; }).sort(byOpen);
       html += '<h2>' + m + '월에 남은 일정</h2><p class="meta">일정 ' + list.length + '개' + (mruns.length ? ', 기간 중 진행 ' + mruns.length + '개' : '') + (mo.length ? ', 티켓 오픈 ' + mo.length + '건' : '') + '. 날짜를 누르면 그날 일정만 볼 수 있어요.</p>';
