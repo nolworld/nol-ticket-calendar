@@ -212,6 +212,7 @@ details.grp .list { margin-top: 8px; }
 .item a.alt { color: var(--ink-2); font-weight: 500; }
 .item.open { border-left: 3px dashed var(--open); --c: var(--open); }
 .note { font-size: 13px; color: var(--ink-2); margin: 4px 0 0; }
+.item .ended { font-size: 11px; font-weight: 600; color: var(--ink-2); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
 .gsec { display: flex; align-items: center; gap: 6px; margin: 14px 0 6px; font-size: 13px; font-weight: 700; color: var(--ink); }
 .gsec::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
 .gsec span { color: var(--ink-2); font-weight: 500; }
@@ -284,6 +285,7 @@ footer p { margin: 0 0 6px; }
   <footer>
     <p>NOL World(world.nol.com)와 국내 NOL의 콘서트, 뮤지컬, 스포츠, 전시 목록을 매일 오전 6시쯤(한국 시간) 새로 읽어 와요.</p>
     <p>‘NOL World 판매’ 보기에는 NOL World 목록에 올라온 상품만 나오고, 상품명은 NOL World에 등록된 이름 그대로 보여줘요. 국내 NOL 이름이 다르면 그 아래에 작게 적었어요. ‘NOL 전체’로 바꾸면 국내 NOL에서만 파는 일정도 함께 국내 이름으로 보여요.</p>
+    <p>지난 일정은 공연이 끝나 NOL 목록에서 내려간 뒤에도 최근 1년치까지 보관해서, 달력을 지난달로 넘겨 볼 수 있어요. 보관은 이 기능을 적용한 뒤 끝난 공연부터 쌓여요.</p>
     <p>일주일 넘게 이어지는 일정은 달력에 시작일과 종료일만 표시하고, 날짜를 누르면 그날 진행 중인 목록에서 볼 수 있어요.</p>
     <p>공연 시간은 NOL 상품 정보에 적힌 안내 문구를 그대로 옮겼어요. 매일 회차가 다른 장기 공연은 관람 시간만 보여줄 수 있어요.</p>
     <p>선예매가 있는 상품은 국내 NOL 상품 정보에 적힌 선예매 기간과 일반예매 오픈 시각을 함께 보여줘요. 팬클럽 인증 같은 참여 조건은 각 상품 페이지에서 확인하세요. 날짜와 회차는 바뀔 수 있으니 예매 전에 다시 확인하세요.</p>
@@ -362,8 +364,15 @@ footer p { margin: 0 0 6px; }
     // Month range follows the data so navigation grows with new listings
     var dates = EVENTS.map(function (e) { return e.end; }).concat(OPENS.map(function (o) { return o.date; }));
     var maxDate = dates.reduce(function (a, b) { return a > b ? a : b; }, TODAY);
-    MIN_M = todayM;
-    MAX_M = Math.max(monthIndex(+maxDate.slice(0, 4), +maxDate.slice(5, 7)), MIN_M);
+    // Earliest month: the first ended (or one-off) show kept in the data, at most one year back
+    var floor = (function () { var d = new Date(now.getFullYear() - 1, now.getMonth(), 1); return ymd(d.getFullYear(), d.getMonth() + 1, 1); })();
+    var earliest = EVENTS.reduce(function (acc, e) {
+      var d = e.run ? (e.end < TODAY ? e.end : TODAY) : e.start;
+      return d < acc ? d : acc;
+    }, TODAY);
+    if (earliest < floor) earliest = floor;
+    MIN_M = Math.min(todayM, monthIndex(+earliest.slice(0, 4), +earliest.slice(5, 7)));
+    MAX_M = Math.max(monthIndex(+maxDate.slice(0, 4), +maxDate.slice(5, 7)), todayM);
     state.m = todayM;
     state.selected = TODAY;
   }
@@ -532,7 +541,8 @@ footer p { margin: 0 0 6px; }
     var acts = linksHTML(e);
     if (withJump) acts += '<button type="button" class="jump" data-jump="' + e.start + '">달력에서 보기</button>';
     return '<article class="item" style="--c:var(--g-' + e.genre + ')">' +
-      '<div class="row"><span class="tag">' + esc(genreName(e.genre)) + '</span><span>' + fmtRange(e.start, e.end) + '</span></div>' +
+      '<div class="row"><span class="tag">' + esc(genreName(e.genre)) + '</span><span>' + fmtRange(e.start, e.end) + '</span>' +
+        (e.end < TODAY ? '<span class="ended">종료</span>' : '') + '</div>' +
       '<h4>' + esc(nameOf(e)) + '</h4>' + krLine(e) +
       '<p class="venue">' + esc(venueOf(e)) + '</p>' + whenHTML(e) + salesHTML(e) +
       (e.run ? '<p class="note">' + (CONCERT[e.genre] ? '기간 중 일부 날짜에만 공연해요. 회차는 예매 페이지에서 확인하세요.' : '기간 내내 운영해요. 회차와 휴무일은 예매 페이지에서 확인하세요.') + '</p>' : '') +
@@ -617,6 +627,10 @@ footer p { margin: 0 0 6px; }
       if (!hits.length && !oh.length) html += '<p class="empty">일치하는 일정이 없어요. 다른 이름이나 장소로 검색하거나 꺼 둔 필터를 켜 보세요.</p>';
       if (hits.length) html += '<div class="list">' + hits.map(function (e) { return itemHTML(e, true); }).join('') + '</div>';
       if (oh.length) html += '<h3 class="sec">티켓 오픈</h3><div class="list">' + oh.map(function (o) { return openHTML(o, true); }).join('') + '</div>';
+      var past = EVENTS.filter(function (e) { return visible(e) && e.end < TODAY; })
+        .sort(function (a, b) { return a.end < b.end ? 1 : a.end > b.end ? -1 : 0; });
+      if (past.length) html += '<details class="grp"><summary>지난 일정 ' + past.length + '개 (최근 끝난 순)</summary><div class="list">' +
+        past.map(function (e) { return itemHTML(e, true); }).join('') + '</div></details>';
     } else if (state.selected) {
       var d = parse(state.selected);
       var evs = eventsOn(state.selected).sort(genreTimeOn(state.selected));
@@ -644,12 +658,16 @@ footer p { margin: 0 0 6px; }
     } else {
       var y = Math.floor(state.m / 12), m = state.m % 12 + 1;
       var a = ymd(y, m, 1), b = ymd(y, m, new Date(y, m, 0).getDate());
-      var inMonth = EVENTS.filter(function (e) { return visible(e) && e.start <= b && e.end >= a && e.end >= TODAY; });
+      var pastMonth = state.m < todayM;
+      var from = pastMonth || a > TODAY ? a : TODAY;
+      var inMonth = EVENTS.filter(function (e) { return visible(e) && e.start <= b && e.end >= a && e.end >= from; });
       var list = inMonth.filter(function (e) { return !e.run; }).sort(byStartGenreTime);
       var mruns = inMonth.filter(function (e) { return e.run; });
-      var mo = OPENS.filter(function (o) { return openVisible(o) && o.date >= a && o.date <= b && o.date >= TODAY; }).sort(byOpen);
-      html += '<h2>' + m + '월에 남은 일정</h2><p class="meta">일정 ' + list.length + '개' + (mruns.length ? ', 기간 중 진행 ' + mruns.length + '개' : '') + (mo.length ? ', 티켓 오픈 ' + mo.length + '건' : '') + '. 날짜를 누르면 그날 일정만 볼 수 있어요.</p>';
-      if (!list.length && !mo.length && !mruns.length) html += '<p class="empty">이 달에는 남은 일정이 없어요. 다음 달로 넘기거나 꺼 둔 필터를 켜 보세요.</p>';
+      var mo = OPENS.filter(function (o) { return openVisible(o) && o.date >= a && o.date <= b && o.date >= from; }).sort(byOpen);
+      html += '<h2>' + (pastMonth ? y + '년 ' + m + '월 일정' : m + '월에 남은 일정') + '</h2><p class="meta">일정 ' + list.length + '개' + (mruns.length ? ', 기간 중 진행 ' + mruns.length + '개' : '') + (mo.length ? ', 티켓 오픈 ' + mo.length + '건' : '') + '. 날짜를 누르면 그날 일정만 볼 수 있어요.</p>';
+      if (!list.length && !mo.length && !mruns.length) html += '<p class="empty">' + (pastMonth
+        ? '이 달에 보관된 일정이 없어요. 지난 일정은 끝난 뒤 NOL 목록에서 내려간 공연부터 보관돼요.'
+        : '이 달에는 남은 일정이 없어요. 다음 달로 넘기거나 꺼 둔 필터를 켜 보세요.') + '</p>';
       if (list.length) html += '<div class="list">' + list.map(function (e) { return itemHTML(e); }).join('') + '</div>';
       if (mo.length) html += '<h3 class="sec">티켓 오픈</h3><div class="list">' + mo.map(function (o) { return openHTML(o, true); }).join('') + '</div>';
       if (mruns.length) html += runGroupsHTML(mruns, false);
@@ -667,7 +685,7 @@ footer p { margin: 0 0 6px; }
     }
     var b = e.target.closest('[data-jump]');
     if (!b) return;
-    var s = b.dataset.jump < TODAY ? TODAY : b.dataset.jump;
+    var s = b.dataset.jump;
     state.q = '';
     $('q').value = '';
     state.m = Math.min(Math.max(monthIndex(+s.slice(0, 4), +s.slice(5, 7)), MIN_M), MAX_M);
