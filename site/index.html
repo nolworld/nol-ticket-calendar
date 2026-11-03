@@ -364,14 +364,10 @@ footer p { margin: 0 0 6px; }
     // Month range follows the data so navigation grows with new listings
     var dates = EVENTS.map(function (e) { return e.end; }).concat(OPENS.map(function (o) { return o.date; }));
     var maxDate = dates.reduce(function (a, b) { return a > b ? a : b; }, TODAY);
-    // Earliest month: the first ended (or one-off) show kept in the data, at most one year back
-    var floor = (function () { var d = new Date(now.getFullYear() - 1, now.getMonth(), 1); return ymd(d.getFullYear(), d.getMonth() + 1, 1); })();
-    var earliest = EVENTS.reduce(function (acc, e) {
-      var d = e.run ? (e.end < TODAY ? e.end : TODAY) : e.start;
-      return d < acc ? d : acc;
-    }, TODAY);
-    if (earliest < floor) earliest = floor;
-    MIN_M = Math.min(todayM, monthIndex(+earliest.slice(0, 4), +earliest.slice(5, 7)));
+    // Past months: always reachable back to one year ago (ongoing long runs and
+    // ended shows kept in the data appear there)
+    var floorDate = new Date(now.getFullYear() - 1, now.getMonth(), 1);
+    MIN_M = monthIndex(floorDate.getFullYear(), floorDate.getMonth() + 1);
     MAX_M = Math.max(monthIndex(+maxDate.slice(0, 4), +maxDate.slice(5, 7)), todayM);
     state.m = todayM;
     state.selected = TODAY;
