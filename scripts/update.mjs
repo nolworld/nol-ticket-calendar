@@ -378,6 +378,47 @@ function baseEvent(g, genre, names, onWorld) {
   }
 }
 
+// Earlier versions of site/events.json from the repository's commit history
+// (public repository, read without a token). Newest snapshot wins for each product.
+async function backfillFromHistory(repo, keep) {
+  const headers = { "user-agent": UA, accept: "application/vnd.github+json" }
+  const res = await fetch(`https://api.github.com/repos/${repo}/commits?path=site/events.json&per_page=100`, { headers, signal: AbortSignal.timeout(20_000) })
+  if (!res.ok) throw new Error(`commit list: HTTP ${res.status}`)
+  const commits = await res.json()
+  const found = new Map()
+  let ok = 0
+  for (const c of commits) {
+    try {
+      const r = await fetch(`https://raw.githubusercontent.com/${repo}/${c.sha}/site/events.json`, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(20_000) })
+      if (!r.ok) continue
+      const snap = await r.json()
+      ok++
+      for (const e of snap.events || []) if (!found.has(e.id) && keep(e)) found.set(e.id, e)
+    } catch {}
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  console.log(`History backfill: ${ok}/${commits.length} snapshots read, ${found.size} ended shows recovered`)
+  return { events: [...found.values()], complete: commits.length > 0 && ok === commits.length }
+}
+
+// Check (no effect on the data): does NOL return ended products for other status codes?
+async function probeEndedStatus() {
+  const out = {}
+  for (const st of ["N", "E", "C", "F", "Y,D,N,E,C"]) {
+    try {
+      const url = new URL(API)
+      url.search = new URLSearchParams({ languageType: "KO", includeNonPartnerGoods: "true", goodsStatus: st, genreType: "CONCERT", page: "0", size: "100" }).toString()
+      const r = await fetch(url, { headers: { accept: "application/json", "user-agent": UA }, signal: AbortSignal.timeout(15_000) })
+      const d = (await r.json())?.data
+      const ends = (d?.content || []).map((g) => g.playEndDate).filter(Boolean).sort()
+      out[st] = d ? { total: d.totalElements, earliestEnd: ends[0] || null, statuses: [...new Set((d.content || []).map((g) => g.goodsStatus))].join(",") } : `HTTP ${r.status}`
+    } catch (err) {
+      out[st] = String(err).slice(0, 60)
+    }
+  }
+  return out
+}
+
 async function main() {
   const started = Date.now()
   const jobs = GENRES.flatMap((genre) => Object.keys(SCOPES).map((scope) => ({ genre, scope })))
@@ -430,16 +471,27 @@ async function main() {
   // Past calendar: shows that ended and dropped off NOL's lists are kept from the
   // previous run's data (up to one year). Products that vanished before ending
   // (likely cancelled) are not kept.
-  let archived = 0
-  try {
-    const prev = JSON.parse(fs.readFileSync(OUT, "utf8")).events || []
-    const kst = (days) => new Date(Date.now() + 9 * 3600e3 - days * 864e5).toISOString().slice(0, 10)
-    const today = kst(0), oldest = kst(365)
-    for (const e of prev) {
-      if (!e || !e.id || byId.has(e.id) || typeof e.end !== "string") continue
-      if (e.end < today && e.end >= oldest) { events.push({ ...e, archived: true }); archived++ }
+  let archived = 0, backfilled = false, restored = 0
+  const kst = (days) => new Date(Date.now() + 9 * 3600e3 - days * 864e5).toISOString().slice(0, 10)
+  const today = kst(0), oldest = kst(365)
+  const keep = (e) => e && e.id && !byId.has(e.id) && typeof e.end === "string" && e.end < today && e.end >= oldest
+  let prevData = {}
+  try { prevData = JSON.parse(fs.readFileSync(OUT, "utf8")) } catch {}
+  for (const e of prevData.events || []) {
+    if (keep(e)) { byId.set(e.id, e); events.push({ ...e, archived: true }); archived++ }
+  }
+  backfilled = !!prevData.backfilled
+  // One-time: recover ended shows from earlier daily snapshots kept in the repository history
+  if (!backfilled && process.env.GITHUB_REPOSITORY) {
+    try {
+      const r = await backfillFromHistory(process.env.GITHUB_REPOSITORY, keep)
+      for (const e of r.events) { byId.set(e.id, e); events.push({ ...e, archived: true }); restored++ }
+      archived += restored
+      backfilled = r.complete
+    } catch (err) {
+      console.error("History backfill failed, will retry next run:", err)
     }
-  } catch {}
+  }
   events.sort((a, b) => a.start.localeCompare(b.start) || a.id.localeCompare(b.id))
 
   const cached = codes.filter((c) => names[c] && (names[c].k || 0) >= 4).length
@@ -447,7 +499,9 @@ async function main() {
   const presales = events.filter((e) => e.sales && !e.archived).map((e) =>
     `${e.id} ${e.start} ${e.nameKo.slice(0, 40)} | ` + e.sales.map((x) => x.label + (x.kind ? ` (분류: ${x.kind})` : "")).join(", "))
   const pages = { ...lookup, cached, total: codes.length, withPresale: presales.length, archived, presales }
-  const data = { updatedAt: new Date().toISOString(), pages, source: "https://world.nol.com/en/ticket", counts, events }
+  pages.restored = restored
+  pages.endedStatus = await probeEndedStatus()
+  const data = { updatedAt: new Date().toISOString(), pages, backfilled, source: "https://world.nol.com/en/ticket", counts, events }
   fs.mkdirSync("site", { recursive: true })
   fs.mkdirSync("data", { recursive: true })
   fs.writeFileSync(OUT, JSON.stringify(data))
