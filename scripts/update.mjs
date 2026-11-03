@@ -161,14 +161,19 @@ function productFields(t, code) {
 function salesOf(f) {
   const sales = []
   const presales = f.presales ?? f.preSales
+  // Name shown on the NOL page; "선예매" alone says nothing, so it is skipped
+  const specific = (x) => { const v = String(x ?? "").trim(); return v && v !== "선예매" ? v : "" }
+  const shown = specific(f.ticketOtherOpenName)
   if (Array.isArray(presales)) {
     for (const p of presales) {
       // concerts: bookingOpenTime/bookingEndTime, sports: minBookingOpenTime/maxBookingEndTime
       const start = minute(p?.bookingOpenTime ?? p?.minBookingOpenTime)
       if (!start) continue
-      const button = String(p.buttonName ?? "").trim()
-      const label = button && button !== "선예매" ? button : String(p.preBookingKindName ?? "").trim() || "선예매"
-      sales.push({ label, start, end: minute(p.bookingEndTime ?? p.maxBookingEndTime) })
+      // button name -> name shown on the page (when there is one presale round) -> internal kind name
+      const label = specific(p.buttonName) || (presales.length === 1 && shown) || String(p.preBookingKindName ?? "").trim() || "선예매"
+      const kind = String(p.preBookingKindName ?? "").trim()
+      // kind (NOL's internal category) is kept only when it differs from the shown name, for checking
+      sales.push({ label, start, end: minute(p.bookingEndTime ?? p.maxBookingEndTime), ...(kind && kind !== label ? { kind } : {}) })
     }
   }
   // Some products only announce the presale start (ticket open type 3 = other open)
@@ -258,7 +263,7 @@ async function fetchProduct(code) {
     const pt = typeof info === "string" && info.trim() ? tidyTime(info)
       : typeof start === "string" && /^\d{1,2}:\d{2}$/.test(start.trim()) ? start.trim() : ""
     const rt = Number(findKey(f, "runningTime")) || 0
-    return { data: { n: name.trim(), v: typeof venue === "string" ? venue.trim() : "", s: salesOf(f), ps, pt, rt, k: 5 } }
+    return { data: { n: name.trim(), v: typeof venue === "string" ? venue.trim() : "", s: salesOf(f), ps, pt, rt, k: 7 } }
   } catch {
     return { status: 0 }
   }
@@ -287,6 +292,7 @@ async function updateProducts(goods, worldCodes, sportsCodes, cache) {
     const c = cache[g.goodsCode]
     if (!c || Array.isArray(c) || !c.t || (c.k || 0) < 4) return true // k:4 = product-matched fields, page dates and show times
     if (sportsCodes.has(g.goodsCode) && c.k < 5) return true // k:5 = sports presale fields read
+    if (c.s && c.s.length && c.k < 7) return true // k:7 = presale names as shown on NOL, with category
     if (now - c.t > NAME_TTL) return true
     return rank(g) === 0 && now - c.t > 12 * 3600e3 // open coming up: re-check every day
   }).sort((a, b) => rank(a) - rank(b) || ((cache[a.goodsCode]?.k || 0) >= 4 ? 1 : 0) - ((cache[b.goodsCode]?.k || 0) >= 4 ? 1 : 0))
@@ -420,10 +426,27 @@ async function main() {
 
   const events = [...byId.values()]
   if (!events.some((e) => e.world)) throw new Error("NOL World returned no products")
+
+  // Past calendar: shows that ended and dropped off NOL's lists are kept from the
+  // previous run's data (up to one year). Products that vanished before ending
+  // (likely cancelled) are not kept.
+  let archived = 0
+  try {
+    const prev = JSON.parse(fs.readFileSync(OUT, "utf8")).events || []
+    const kst = (days) => new Date(Date.now() + 9 * 3600e3 - days * 864e5).toISOString().slice(0, 10)
+    const today = kst(0), oldest = kst(365)
+    for (const e of prev) {
+      if (!e || !e.id || byId.has(e.id) || typeof e.end !== "string") continue
+      if (e.end < today && e.end >= oldest) { events.push({ ...e, archived: true }); archived++ }
+    }
+  } catch {}
   events.sort((a, b) => a.start.localeCompare(b.start) || a.id.localeCompare(b.id))
 
   const cached = codes.filter((c) => names[c] && (names[c].k || 0) >= 4).length
-  const pages = { ...lookup, cached, total: codes.length, withPresale: events.filter((e) => e.sales).length }
+  // Summary at the top of the data: every product with a presale and how it is labeled
+  const presales = events.filter((e) => e.sales && !e.archived).map((e) =>
+    `${e.id} ${e.start} ${e.nameKo.slice(0, 40)} | ` + e.sales.map((x) => x.label + (x.kind ? ` (분류: ${x.kind})` : "")).join(", "))
+  const pages = { ...lookup, cached, total: codes.length, withPresale: presales.length, archived, presales }
   const data = { updatedAt: new Date().toISOString(), pages, source: "https://world.nol.com/en/ticket", counts, events }
   fs.mkdirSync("site", { recursive: true })
   fs.mkdirSync("data", { recursive: true })
