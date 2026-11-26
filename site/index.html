@@ -254,8 +254,8 @@ footer p { margin: 0 0 6px; }
       <button type="button" data-w="0" aria-pressed="false">NOL 전체</button>
     </div>
     <div class="mode" id="area" role="group" aria-label="지역">
-      <button type="button" data-a="all" aria-pressed="true">전체 지역</button>
-      <button type="button" data-a="cap" aria-pressed="false">서울/수도권</button>
+      <button type="button" data-a="all" aria-pressed="false">전체 지역</button>
+      <button type="button" data-a="cap" aria-pressed="true">서울/수도권</button>
       <button type="button" data-a="etc" aria-pressed="false">그 외 지역</button>
     </div>
     <label class="search">
@@ -344,7 +344,7 @@ footer p { margin: 0 0 6px; }
   var todayM = monthIndex(now.getFullYear(), now.getMonth() + 1);
 
   var EVENTS = [], OPENS = [], UPDATED = '', MIN_M = todayM, MAX_M = todayM;
-  var state = { m: todayM, selected: TODAY, genres: {}, showOpens: true, worldOnly: true, area: 'all', q: '' };
+  var state = { m: todayM, selected: TODAY, genres: {}, showOpens: true, worldOnly: true, area: 'cap', q: '' }; // opens on 서울/수도권
   GENRES.forEach(function (g) { state.genres[g.id] = true; });
 
   function setData(data) {
