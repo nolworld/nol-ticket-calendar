@@ -354,6 +354,13 @@ function pageData(g, names) {
   return c
 }
 
+// Region group: "cap" = 서울·경기, "etc" = other regions, null = unknown
+function areaOf(regionName) {
+  const r = String(regionName ?? "").trim()
+  if (!r) return null
+  return /서울|경기/.test(r) ? "cap" : "etc"
+}
+
 function baseEvent(g, genre, names, onWorld) {
   const c = pageData(g, names)
   const listName = g.goodsName.trim()
@@ -368,6 +375,8 @@ function baseEvent(g, genre, names, onWorld) {
     nameKo: onWorld ? (c?.n || listName) : (HANGUL.test(listName) || !c?.n ? listName : c.n),
     venueKo: c?.v || (g.placeName ?? "").trim(),
     sales: c?.s?.length ? c.s : undefined,
+    region: String(g.regionName ?? "").trim() || undefined,
+    area: areaOf(g.regionName) || undefined,
     time: (c?.pt && shortenDates(tidyTime(c.pt), (Date.parse(g.playEndDate) - Date.parse(g.playStartDate)) / 864e5 > 14)) || undefined,
     runtime: c?.rt || undefined,
     krUrl: `https://nol.yanolja.com/ticket/products/${g.goodsCode}`,
@@ -399,24 +408,6 @@ async function backfillFromHistory(repo, keep) {
   }
   console.log(`History backfill: ${ok}/${commits.length} snapshots read, ${found.size} ended shows recovered`)
   return { events: [...found.values()], complete: commits.length > 0 && ok === commits.length }
-}
-
-// Check (no effect on the data): does NOL return ended products for other status codes?
-async function probeEndedStatus() {
-  const out = {}
-  for (const st of ["N", "E", "C", "F", "Y,D,N,E,C"]) {
-    try {
-      const url = new URL(API)
-      url.search = new URLSearchParams({ languageType: "KO", includeNonPartnerGoods: "true", goodsStatus: st, genreType: "CONCERT", page: "0", size: "100" }).toString()
-      const r = await fetch(url, { headers: { accept: "application/json", "user-agent": UA }, signal: AbortSignal.timeout(15_000) })
-      const d = (await r.json())?.data
-      const ends = (d?.content || []).map((g) => g.playEndDate).filter(Boolean).sort()
-      out[st] = d ? { total: d.totalElements, earliestEnd: ends[0] || null, statuses: [...new Set((d.content || []).map((g) => g.goodsStatus))].join(",") } : `HTTP ${r.status}`
-    } catch (err) {
-      out[st] = String(err).slice(0, 60)
-    }
-  }
-  return out
 }
 
 async function main() {
@@ -500,7 +491,9 @@ async function main() {
     `${e.id} ${e.start} ${e.nameKo.slice(0, 40)} | ` + e.sales.map((x) => x.label + (x.kind ? ` (분류: ${x.kind})` : "")).join(", "))
   const pages = { ...lookup, cached, total: codes.length, withPresale: presales.length, archived, presales }
   pages.restored = restored
-  pages.endedStatus = await probeEndedStatus()
+  const regions = {}
+  for (const e of events) if (!e.archived) { const k = `${e.region || "(없음)"}→${e.area || "?"}`; regions[k] = (regions[k] || 0) + 1 }
+  pages.regions = regions
   const data = { updatedAt: new Date().toISOString(), pages, backfilled, source: "https://world.nol.com/en/ticket", counts, events }
   fs.mkdirSync("site", { recursive: true })
   fs.mkdirSync("data", { recursive: true })
