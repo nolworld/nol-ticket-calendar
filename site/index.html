@@ -253,6 +253,11 @@ footer p { margin: 0 0 6px; }
       <button type="button" data-w="1" aria-pressed="true">NOL World 판매</button>
       <button type="button" data-w="0" aria-pressed="false">NOL 전체</button>
     </div>
+    <div class="mode" id="area" role="group" aria-label="지역">
+      <button type="button" data-a="all" aria-pressed="true">전체 지역</button>
+      <button type="button" data-a="cap" aria-pressed="false">서울·경기</button>
+      <button type="button" data-a="etc" aria-pressed="false">그 외 지역</button>
+    </div>
     <label class="search">
       <span class="sr">공연, 경기, 전시 이름이나 장소로 검색</span>
       <input type="search" id="q" placeholder="공연, 경기, 전시 이름이나 장소로 검색" autocomplete="off">
@@ -286,6 +291,7 @@ footer p { margin: 0 0 6px; }
     <p>NOL World(world.nol.com)와 국내 NOL의 콘서트, 뮤지컬, 스포츠, 전시 목록을 매일 오전 6시쯤(한국 시간) 새로 읽어 와요.</p>
     <p>‘NOL World 판매’ 보기에는 NOL World 목록에 올라온 상품만 나오고, 상품명은 NOL World에 등록된 이름 그대로 보여줘요. 국내 NOL 이름이 다르면 그 아래에 작게 적었어요. ‘NOL 전체’로 바꾸면 국내 NOL에서만 파는 일정도 함께 국내 이름으로 보여요.</p>
     <p>지난 일정은 공연이 끝나 NOL 목록에서 내려간 뒤에도 최근 1년치까지 보관해서, 달력을 지난달로 넘겨 볼 수 있어요. 보관은 이 기능을 적용한 뒤 끝난 공연부터 쌓여요.</p>
+    <p>지역은 NOL 상품 정보에 적힌 지역으로 나눠요. ‘서울·경기’에는 서울과 경기 공연이, ‘그 외 지역’에는 인천을 포함한 나머지 지역 공연이 나와요. 지역 정보가 없는 일부 지난 일정은 ‘전체 지역’에서만 보여요.</p>
     <p>일주일 넘게 이어지는 일정은 달력에 시작일과 종료일만 표시하고, 날짜를 누르면 그날 진행 중인 목록에서 볼 수 있어요.</p>
     <p>공연 시간은 NOL 상품 정보에 적힌 안내 문구를 그대로 옮겼어요. 매일 회차가 다른 장기 공연은 관람 시간만 보여줄 수 있어요.</p>
     <p>선예매가 있는 상품은 국내 NOL 상품 정보에 적힌 선예매 기간과 일반예매 오픈 시각을 함께 보여줘요. 팬클럽 인증 같은 참여 조건은 각 상품 페이지에서 확인하세요. 날짜와 회차는 바뀔 수 있으니 예매 전에 다시 확인하세요.</p>
@@ -338,7 +344,7 @@ footer p { margin: 0 0 6px; }
   var todayM = monthIndex(now.getFullYear(), now.getMonth() + 1);
 
   var EVENTS = [], OPENS = [], UPDATED = '', MIN_M = todayM, MAX_M = todayM;
-  var state = { m: todayM, selected: TODAY, genres: {}, showOpens: true, worldOnly: true, q: '' };
+  var state = { m: todayM, selected: TODAY, genres: {}, showOpens: true, worldOnly: true, area: 'all', q: '' };
   GENRES.forEach(function (g) { state.genres[g.id] = true; });
 
   function setData(data) {
@@ -346,7 +352,7 @@ footer p { margin: 0 0 6px; }
     EVENTS = data.events.map(function (e, i) {
       var long = (parse(e.end) - parse(e.start)) / 864e5 > 6;
       return { id: i, title: e.nameKo, wname: e.name, venue: e.venueKo, wvenue: e.venue, world: !!e.world,
-        start: e.start, end: e.end, genre: e.genre, url: e.url, krUrl: e.krUrl, run: long,
+        start: e.start, end: e.end, genre: e.genre, url: e.url, krUrl: e.krUrl, run: long, area: e.area || null,
         open: e.open || null, sales: Array.isArray(e.sales) && e.sales.length ? e.sales : null,
         time: e.time || null, runtime: e.runtime || null };
     });
@@ -356,7 +362,7 @@ footer p { margin: 0 0 6px; }
       var sales = Array.isArray(e.sales) ? e.sales : [];
       function add(at, kind) {
         OPENS.push({ id: OPENS.length, date: at.slice(0, 10), time: at.slice(11, 16), kind: kind, title: e.nameKo, wname: e.name,
-          world: !!e.world, url: e.url, krUrl: e.krUrl, genre: e.genre });
+          world: !!e.world, url: e.url, krUrl: e.krUrl, genre: e.genre, area: e.area || null });
       }
       sales.forEach(function (s) { if (s.start) add(s.start, s.label); });
       if (e.open) add(e.open, sales.length ? '일반예매' : null);
@@ -374,7 +380,9 @@ footer p { margin: 0 0 6px; }
   }
 
   // NOL World mode shows only products listed on NOL World, under their NOL World names
-  function inMode(x) { return !state.worldOnly || x.world; }
+  // Seller (NOL World / all) and region (서울·경기 / other); products with no region show only under 전체 지역
+  function inMode(x) { return (!state.worldOnly || x.world) && (state.area === 'all' || x.area === state.area); }
+  var AREA_LABEL = { all: '', cap: '서울·경기 ', etc: '그 외 지역 ' };
   function nameOf(x) { return state.worldOnly && x.world && x.wname ? x.wname : x.title; }
   function venueOf(x) { return state.worldOnly && x.world && x.wvenue ? x.wvenue : x.venue; }
   function matches(x) {
@@ -401,7 +409,7 @@ footer p { margin: 0 0 6px; }
   function opensOn(date) { return OPENS.filter(function (o) { return openVisible(o) && o.date === date; }); }
 
   function renderSub() {
-    $('sub').textContent = (state.worldOnly ? 'NOL World 판매 일정 ' : 'NOL 전체 일정 ') + EVENTS.filter(inMode).length + '개와 티켓 오픈 ' +
+    $('sub').textContent = AREA_LABEL[state.area] + (state.worldOnly ? 'NOL World 판매 일정 ' : 'NOL 전체 일정 ') + EVENTS.filter(inMode).length + '개와 티켓 오픈 ' +
       OPENS.filter(function (o) { return inMode(o) && o.date >= TODAY; }).length + '건 · ' + updatedLabel(UPDATED) + ' 업데이트';
   }
 
@@ -420,7 +428,17 @@ footer p { margin: 0 0 6px; }
     $('filters').innerHTML = html;
     var mb = $('mode').querySelectorAll('button');
     for (var i = 0; i < mb.length; i++) mb[i].setAttribute('aria-pressed', String((mb[i].dataset.w === '1') === state.worldOnly));
+    var ab = $('area').querySelectorAll('button');
+    for (var j = 0; j < ab.length; j++) ab[j].setAttribute('aria-pressed', String(ab[j].dataset.a === state.area));
   }
+  $('area').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    state.area = b.dataset.a;
+    renderSub();
+    renderFilters();
+    render(false);
+  });
   $('mode').addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b) return;
