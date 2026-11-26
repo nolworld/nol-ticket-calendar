@@ -358,7 +358,8 @@ function pageData(g, names) {
 function areaOf(regionName) {
   const r = String(regionName ?? "").trim()
   if (!r) return null
-  return /서울|경기/.test(r) ? "cap" : "etc"
+  // NOL writes some regions in Korean ("경기") and some in English ("Seoul")
+  return /서울|경기|seoul|gyeonggi/i.test(r) ? "cap" : "etc"
 }
 
 function baseEvent(g, genre, names, onWorld) {
@@ -469,7 +470,7 @@ async function main() {
   let prevData = {}
   try { prevData = JSON.parse(fs.readFileSync(OUT, "utf8")) } catch {}
   for (const e of prevData.events || []) {
-    if (keep(e)) { byId.set(e.id, e); events.push({ ...e, archived: true }); archived++ }
+    if (keep(e)) { byId.set(e.id, e); events.push({ ...e, area: areaOf(e.region) || undefined, archived: true }); archived++ }
   }
   backfilled = !!prevData.backfilled
   // One-time: recover ended shows from earlier daily snapshots kept in the repository history
