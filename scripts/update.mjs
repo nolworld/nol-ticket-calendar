@@ -354,12 +354,12 @@ function pageData(g, names) {
   return c
 }
 
-// Region group: "cap" = 서울·경기, "etc" = other regions, null = unknown
+// Region group: "cap" = 서울/수도권 (서울·경기·인천), "etc" = other regions, null = unknown
 function areaOf(regionName) {
   const r = String(regionName ?? "").trim()
   if (!r) return null
   // NOL writes some regions in Korean ("경기") and some in English ("Seoul")
-  return /서울|경기|seoul|gyeonggi/i.test(r) ? "cap" : "etc"
+  return /서울|경기|인천|seoul|gyeonggi|incheon/i.test(r) ? "cap" : "etc"
 }
 
 function baseEvent(g, genre, names, onWorld) {
